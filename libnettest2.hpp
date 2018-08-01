@@ -22,6 +22,7 @@
 #include <exception>
 #include <iostream>
 #include <map>
+#include <random>
 #include <string>
 #include <thread>
 #include <utility>
@@ -492,7 +493,9 @@ bool Runner::run() noexcept {
       inputs.push_back("");  // just one entry
     }
     if (settings_.randomize_input) {
-      // TODO(bassosimone): implement
+       std::random_device random_device;
+       std::mt19937 mt19937{random_device()};
+       std::shuffle(inputs.begin(), inputs.end(), mt19937);
     }
     for (uint64_t i = 0; i < inputs.size(); ++i) {
       if (i > UINT32_MAX) {
