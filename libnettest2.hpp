@@ -43,6 +43,10 @@
 namespace measurement_kit {
 namespace libnettest2 {
 
+constexpr const char *default_engine_name() noexcept {
+  return "measurement_kit/libnettest2";
+}
+
 // Versioning
 // ``````````
 
@@ -58,11 +62,18 @@ constexpr Version version_minor = Version{0};
 /// Patch API version number of measurement-kit/libnettest2.
 constexpr Version version_patch = Version{0};
 
+/// Returns a string reresentation of the version
+std::string version() noexcept {
+  std::stringstream ss;
+  ss << version_major << "." << version_minor << "." << version_patch;
+  return ss.str();
+}
+
 // Timeout
 // ```````
 
-using Timeout = unsigned int;
-constexpr Timeout timeout_max = UINT_MAX;
+using Timeout = double;
+constexpr Timeout TimeoutMax = 90.0;
 
 // Log level
 // `````````
@@ -99,9 +110,9 @@ class Settings {
   bool save_real_probe_ip = false;
   bool save_real_probe_cc = true;
   bool save_real_resolver_ip = true;
-  std::string software_name = "libnettest2";
-  std::string software_version = "0.0.0";
-  Timeout max_runtime = timeout_max;
+  std::string software_name = default_engine_name();
+  std::string software_version = version();
+  Timeout max_runtime = TimeoutMax;
   LogLevel log_level = log_quiet;
 };
 
@@ -165,6 +176,9 @@ class LogEvent {
   LogLevel log_level = log_quiet;
   std::string message;
 };
+
+// Note: better to avoid uint64_t because they translate to big
+// integers in Java
 
 class MeasurementEvent {
  public:
@@ -312,6 +326,115 @@ class Runner {
 // the interface and implementation using LIBNETTEST2_NO_INLINE_IMPL.
 #ifndef LIBNETTEST2_NO_INLINE_IMPL
 
+// UUID4 code
+// ``````````
+// Derivative work of r-lyeh/sole@c61c49f10d.
+/*-
+ * Portions Copyright (c) 2015 r-lyeh (https://github.com/r-lyeh)
+ *
+ * This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ *
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ *
+ * 1. The origin of this software must not be misrepresented; you must not
+ * claim that you wrote the original software. If you use this software
+ * in a product, an acknowledgment in the product documentation would be
+ * appreciated but is not required.
+ *
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ * misrepresented as being the original software.
+ *
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
+namespace sole {
+
+class uuid {
+  public:
+    std::string str();
+    uint64_t ab;
+    uint64_t cd;
+};
+
+uuid uuid4();
+
+std::string uuid::str() {
+    std::stringstream ss;
+    ss << std::hex << std::nouppercase << std::setfill('0');
+
+    uint32_t a = (ab >> 32);
+    uint32_t b = (ab & 0xFFFFFFFF);
+    uint32_t c = (cd >> 32);
+    uint32_t d = (cd & 0xFFFFFFFF);
+
+    ss << std::setw(8) << (a) << '-';
+    ss << std::setw(4) << (b >> 16) << '-';
+    ss << std::setw(4) << (b & 0xFFFF) << '-';
+    ss << std::setw(4) << (c >> 16) << '-';
+    ss << std::setw(4) << (c & 0xFFFF);
+    ss << std::setw(8) << d;
+
+    return ss.str();
+}
+
+uuid uuid4() {
+    std::random_device rd;
+    std::uniform_int_distribution<uint64_t> dist(0, (uint64_t)(~0));
+    uuid my;
+
+    my.ab = dist(rd);
+    my.cd = dist(rd);
+
+    /* The version 4 UUID is meant for generating UUIDs from truly-random or
+       pseudo-random numbers.
+
+       The algorithm is as follows:
+
+       o  Set the four most significant bits (bits 12 through 15) of the
+          time_hi_and_version field to the 4-bit version number from
+          Section 4.1.3.
+
+       o  Set the two most significant bits (bits 6 and 7) of the
+          clock_seq_hi_and_reserved to zero and one, respectively.
+
+       o  Set all the other bits to randomly (or pseudo-randomly) chosen
+          values.
+
+       See <https://tools.ietf.org/html/rfc4122#section-4.4>. */
+    my.ab = (my.ab & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+    my.cd = (my.cd & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+
+    return my;
+}
+
+}  // namespace sole
+
+/*
+ * Guess the platform in which we are.
+ *
+ * See: <https://sourceforge.net/p/predef/wiki/OperatingSystems/>
+ *      <http://stackoverflow.com/a/18729350>
+ */
+#if defined __ANDROID__
+#  define LIBNETTEST2_PLATFORM "android"
+#elif defined __linux__
+#  define LIBNETTEST2_PLATFORM "linux"
+#elif defined _WIN32
+#  define LIBNETTEST2_PLATFORM "windows"
+#elif defined __APPLE__
+#  include <TargetConditionals.h>
+#  if TARGET_OS_IPHONE
+#    define LIBNETTEST2_PLATFORM "ios"
+#  else
+#    define LIBNETTEST2_PLATFORM "macos"
+#  endif
+#else
+#  define LIBNETTEST2_PLATFORM "unknown"
+#endif
+
 #define LIBNETTEST2_EMIT_LOG(level, statements) \
   do {                                          \
     if (settings_.log_level >= log_##level) {   \
@@ -361,6 +484,8 @@ Runner::Runner(const Settings &settings, Nettest &nettest) noexcept
 Runner::~Runner() noexcept {}
 
 bool Runner::run() noexcept {
+  // TODO(bassosimone): we have removed the part where we prevent
+  // multiple nettests from running concurrently, is that OK?
   NettestContext ctx;
   on_status_started();
   {
@@ -369,6 +494,7 @@ bool Runner::run() noexcept {
                          nettest_.version(), &ctx.collectors,
                          &ctx.test_helpers)) {
         LIBNETTEST2_EMIT_WARNING("run: query_bouncer() failed");
+        // FALLTHROUGH
       }
     }
   }
@@ -382,6 +508,7 @@ bool Runner::run() noexcept {
     if (settings_.probe_ip == "") {
       if (!settings_.no_ip_lookup) {
         if (!lookup_ip(&ctx.probe_ip)) {
+          // TODO(bassosimone): here we should emit "failure.ip_lookup"
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
         }
       }
@@ -395,6 +522,7 @@ bool Runner::run() noexcept {
       if (!settings_.no_asn_lookup) {
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
                         &ctx.probe_network_name)) {
+          // TODO(bassosimone): here we should emit "failure.asn_lookup"
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
         }
       }
@@ -410,6 +538,7 @@ bool Runner::run() noexcept {
       if (!settings_.no_cc_lookup) {
         if (!lookup_cc(settings_.geoip_country_path, ctx.probe_ip,
                        &ctx.probe_cc)) {
+          // TODO(bassosimone): here we should emit "failure.cc_lookup"
           LIBNETTEST2_EMIT_WARNING("run: lookup_cc() failed");
         }
       }
@@ -436,6 +565,7 @@ bool Runner::run() noexcept {
     if (!settings_.no_resolver_lookup) {
       if (!lookup_resolver_ip(&ctx.resolver_ip)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
+        // TODO(bassosimone): here we should emit "failure.resolver_lookup"
       }
     }
     LIBNETTEST2_EMIT_DEBUG("resolver_ip: " << ctx.resolver_ip);
@@ -454,6 +584,9 @@ bool Runner::run() noexcept {
   std::string collector_base_url;
   if (!settings_.no_collector) {
     if (settings_.collector_base_url == "") {
+      // TODO(bassosimone): here the algorithm for selecting a collector
+      // is very basic but mirrors the one in MK. We should probably make
+      // the code better and also use cloudfronted if needed.
       for (auto &epnt : ctx.collectors) {
         if (epnt.type == endpoint_type_https) {
           collector_base_url = epnt.address;
@@ -462,6 +595,7 @@ bool Runner::run() noexcept {
       }
       if (!open_report(collector_base_url, ctx, &ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
+        // TODO(bassosimone): here we should emit "failure.report_create"
       }
       LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
     } else {
@@ -481,6 +615,8 @@ bool Runner::run() noexcept {
   }
   if (nettest_.needs_input() && settings_.inputs.empty()) {
     LIBNETTEST2_EMIT_WARNING("run: no input provided");
+    // TODO(bassosimone): according to the spec we should fail the
+    // test in this case, however falling through isn't that bad
   } else {
     std::vector<std::string> inputs;
     if (nettest_.needs_input()) {
@@ -493,15 +629,25 @@ bool Runner::run() noexcept {
       inputs.push_back("");  // just one entry
     }
     if (settings_.randomize_input) {
-       std::random_device random_device;
-       std::mt19937 mt19937{random_device()};
-       std::shuffle(inputs.begin(), inputs.end(), mt19937);
+      std::random_device random_device;
+      std::mt19937 mt19937{random_device()};
+      std::shuffle(inputs.begin(), inputs.end(), mt19937);
     }
+    auto begin = std::chrono::steady_clock::now();
     for (uint64_t i = 0; i < inputs.size(); ++i) {
-      if (i > UINT32_MAX) {
-        LIBNETTEST2_EMIT_WARNING("run: too many entries");
+      if (i > UINT32MAX) {
+        LIBNETTEST2_EMIT_INFO("event index overflow");  // it's 32 bit
+        break;
       }
-      // TODO(bassosimone): implement max_runtime
+      {
+        auto current_time = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed = current_time - begin;
+        if (settings_.max_runtime >= 0 &&
+            elapsed.count() >= settings_.max_runtime * 0.9) {
+          LIBNETTEST2_EMIT_INFO("exceeded max runtime");
+          break;
+        }
+      }
       {
         StatusMeasurementStartEvent event;
         event.idx = i;
@@ -510,14 +656,14 @@ bool Runner::run() noexcept {
       }
       nlohmann::json measurement;
       measurement["annotations"] = settings_.annotations;
-      measurement["annotations"]["engine_name"] = "libmeasurement_kit";
-      measurement["annotations"]["engine_version"] = "0.0.0";       // TODO(bassosimone)
-      measurement["annotations"]["engine_version_full"] = "0.0.0";  // TODO(bassosimone)
-      measurement["annotations"]["platform"] = "unknown";           // TODO(bassosimone)
+      measurement["annotations"]["engine_name"] = default_engine_name();
+      measurement["annotations"]["engine_version"] = version();
+      measurement["annotations"]["engine_version_full"] = version();
+      measurement["annotations"]["platform"] = LIBNETTEST2_PLATFORM;
       measurement["annotations"]["probe_network_name"] = settings_.save_real_probe_asn
                                                              ? ctx.probe_network_name
                                                              : "";
-      measurement["id"] = "";  // TODO(bassosimone)
+      measurement["id"] = sole::uuid4();
       measurement["input"] = inputs[i];
       measurement["input_hashes"] = nlohmann::json::array();
       measurement["measurement_start_time"] = "XXX";  // TODO(bassosimone)
@@ -528,22 +674,26 @@ bool Runner::run() noexcept {
       measurement["report_id"] = ctx.report_id;
       measurement["sotfware_name"] = settings_.software_name;
       measurement["sotfware_version"] = settings_.software_version;
-      measurement["test_helpers"] = nlohmann::json::object();
-      for (auto &pair : ctx.test_helpers) {
-        auto &key = pair.first;
-        auto &values = pair.second;
-        for (auto &epnt : values) {
-          measurement["test_helpers"][key] = nlohmann::json::object();
-          measurement["test_helpers"][key]["address"] = epnt.address;
-          if (epnt.type == endpoint_type_onion) {
-            measurement["test_helpers"][key]["type"] = "onion";
-          } else if (epnt.type == endpoint_type_https) {
-            measurement["test_helpers"][key]["type"] = "https";
-          } else if (epnt.type == endpoint_type_cloudfront) {
-            measurement["test_helpers"][key]["type"] = "cloudfront";
-            measurement["test_helpers"][key]["front"] = epnt.front;
-          } else {
-            continue;
+      {
+        measurement["test_helpers"] = nlohmann::json::object();
+        // TODO(bassosimone): make sure this is exactly what we should send as
+        // I'm quite sure that MK sends less info than this.
+        for (auto &pair : ctx.test_helpers) {
+          auto &key = pair.first;
+          auto &values = pair.second;
+          for (auto &epnt : values) {
+            measurement["test_helpers"][key] = nlohmann::json::object();
+            measurement["test_helpers"][key]["address"] = epnt.address;
+            if (epnt.type == endpoint_type_onion) {
+              measurement["test_helpers"][key]["type"] = "onion";
+            } else if (epnt.type == endpoint_type_https) {
+              measurement["test_helpers"][key]["type"] = "https";
+            } else if (epnt.type == endpoint_type_cloudfront) {
+              measurement["test_helpers"][key]["type"] = "cloudfront";
+              measurement["test_helpers"][key]["front"] = epnt.front;
+            } else {
+              continue;
+            }
           }
         }
       }
@@ -552,27 +702,38 @@ bool Runner::run() noexcept {
       measurement["test_verson"] = nettest_.version();
       nlohmann::json test_keys;
       auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
-      measurement["test_runtime"] = "XXX";  // TODO(bassosimone)
-      measurement["test_keys"] = test_keys;
-      measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip ? ctx.resolver_ip : "";
       {
+        auto current_time = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed = current_time - begin;
+        measurement["test_runtime"] = elapsed.count();
+      }
+      measurement["test_keys"] = test_keys;
+      measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip
+                                                  ? ctx.resolver_ip : "";
+      if (!rv) {
+        // TODO(bassosimone): emit "failure.measurement" error
+      }
+      do {
         MeasurementEvent event;
         try {
           event.json_str = measurement.dump();
         } catch (const std::exception &e) {
           LIBNETTEST2_EMIT_WARNING("run: cannot serialize measurement: " << e.what());
-          // FALLTHROUGH
+          break;  // This is MK passing us an invalid JSON; OK to tolerate?
         }
         event.idx = i;
         if (!settings_.no_collector && !event.json_str.empty()) {
           if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
             LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
+            // TODO(bassosimone): emit failure.measurement_submission
+          } else {
+            // TODO(bassosimone): emit status.measurement_submission
           }
         }
         if (!event.json_str.empty()) {
           on_measurement(std::move(event));  // MUST be after submit_report()
         }
-      }
+      } while (0)
       {
         StatusMeasurementDoneEvent event;
         event.idx = i;
@@ -589,6 +750,9 @@ bool Runner::run() noexcept {
   if (!settings_.no_collector) {
     if (!close_report(collector_base_url, ctx.report_id)) {
       LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
+      // TODO(bassosimone): emit failure.close
+    } else {
+      // TODO(bassosimone): emit status.close
     }
   }
   {
