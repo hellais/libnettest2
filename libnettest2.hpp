@@ -699,7 +699,7 @@ bool Runner::run() noexcept {
       }
       measurement["test_name"] = nettest_.name();
       measurement["test_start_time"] = "XXX";  // TODO(bassosimone)
-      measurement["test_verson"] = nettest_.version();
+      measurement["test_version"] = nettest_.version();
       nlohmann::json test_keys;
       auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
       {
