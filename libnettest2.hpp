@@ -635,7 +635,7 @@ bool Runner::run() noexcept {
     }
     auto begin = std::chrono::steady_clock::now();
     for (uint64_t i = 0; i < inputs.size(); ++i) {
-      if (i > UINT32MAX) {
+      if (i > UINT32_MAX) {
         LIBNETTEST2_EMIT_INFO("event index overflow");  // it's 32 bit
         break;
       }
@@ -663,7 +663,7 @@ bool Runner::run() noexcept {
       measurement["annotations"]["probe_network_name"] = settings_.save_real_probe_asn
                                                              ? ctx.probe_network_name
                                                              : "";
-      measurement["id"] = sole::uuid4();
+      measurement["id"] = sole::uuid4().str();
       measurement["input"] = inputs[i];
       measurement["input_hashes"] = nlohmann::json::array();
       measurement["measurement_start_time"] = "XXX";  // TODO(bassosimone)
@@ -709,7 +709,8 @@ bool Runner::run() noexcept {
       }
       measurement["test_keys"] = test_keys;
       measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip
-                                                  ? ctx.resolver_ip : "";
+                                                    ? ctx.resolver_ip
+                                                    : "";
       if (!rv) {
         // TODO(bassosimone): emit "failure.measurement" error
       }
@@ -733,7 +734,7 @@ bool Runner::run() noexcept {
         if (!event.json_str.empty()) {
           on_measurement(std::move(event));  // MUST be after submit_report()
         }
-      } while (0)
+      } while (0);
       {
         StatusMeasurementDoneEvent event;
         event.idx = i;
