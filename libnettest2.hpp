@@ -44,7 +44,7 @@ namespace measurement_kit {
 namespace libnettest2 {
 
 constexpr const char *default_engine_name() noexcept {
-  return "measurement_kit/libnettest2";
+  return "measurement_kit";
 }
 
 // Versioning
