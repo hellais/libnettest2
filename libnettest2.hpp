@@ -238,6 +238,11 @@ class Runner {
 
   bool run() noexcept;
 
+  void run_with_index32(
+      const std::chrono::time_point<std::chrono::steady_clock> &begin,
+      const std::vector<std::string> &inputs, const NettestContext &ctx,
+      const std::string &collector_base_url, uint32_t i) const noexcept;
+
   void interrupt() noexcept;
 
  protected:
@@ -245,11 +250,16 @@ class Runner {
   // ``````````````````````````````````````
 
   // Note: not using noexcept here because of SWIG
-  virtual void on_log(LogEvent event);
-  virtual void on_measurement(MeasurementEvent event);
+  virtual void on_log(LogEvent event) const;
+  virtual void on_measurement(MeasurementEvent event) const;
   virtual void on_status_geoip_lookup(StatusGeoipLookupEvent event);
-  virtual void on_status_measurement_done(StatusMeasurementDoneEvent event);
-  virtual void on_status_measurement_start(StatusMeasurementStartEvent event);
+
+  virtual void on_status_measurement_done(
+      StatusMeasurementDoneEvent event) const;
+
+  virtual void on_status_measurement_start(
+      StatusMeasurementStartEvent event) const;
+
   virtual void on_status_progress(StatusProgressEvent event);
   virtual void on_status_report_create(StatusReportCreateEvent event);
   virtual void on_status_resolver_lookup(StatusResolverLookupEvent event);
@@ -275,7 +285,7 @@ class Runner {
 
   virtual bool submit_report(const std::string &collector_base_url,
                              const std::string &report_id,
-                             const std::string &json_str) noexcept;
+                             const std::string &json_str) const noexcept;
 
   virtual bool close_report(const std::string &collector_base_url,
                             const std::string &report_id) noexcept;
@@ -301,13 +311,13 @@ class Runner {
   virtual bool curlx_post_json(std::string url,
                                std::string requestbody,
                                long timeout,
-                               std::string *responsebody) noexcept;
+                               std::string *responsebody) const noexcept;
 
   virtual bool curlx_get(std::string url, long timeout,
                 std::string *responsebody) noexcept;
 
   virtual bool curlx_common(UniqueCurl &handle, std::string url, long timeout,
-                            std::string *responsebody) noexcept;
+                            std::string *responsebody) const noexcept;
 
  private:
   // Private attributes
@@ -648,98 +658,7 @@ bool Runner::run() noexcept {
           break;
         }
       }
-      {
-        StatusMeasurementStartEvent event;
-        event.idx = i;
-        event.input = inputs[i];
-        on_status_measurement_start(std::move(event));
-      }
-      nlohmann::json measurement;
-      measurement["annotations"] = settings_.annotations;
-      measurement["annotations"]["engine_name"] = default_engine_name();
-      measurement["annotations"]["engine_version"] = version();
-      measurement["annotations"]["engine_version_full"] = version();
-      measurement["annotations"]["platform"] = LIBNETTEST2_PLATFORM;
-      measurement["annotations"]["probe_network_name"] = settings_.save_real_probe_asn
-                                                             ? ctx.probe_network_name
-                                                             : "";
-      measurement["id"] = sole::uuid4().str();
-      measurement["input"] = inputs[i];
-      measurement["input_hashes"] = nlohmann::json::array();
-      measurement["measurement_start_time"] = "XXX";  // TODO(bassosimone)
-      measurement["options"] = nlohmann::json::array();
-      measurement["probe_asn"] = settings_.save_real_probe_asn ? ctx.probe_asn : "";
-      measurement["probe_cc"] = settings_.save_real_probe_cc ? ctx.probe_cc : "";
-      measurement["probe_ip"] = settings_.save_real_probe_ip ? ctx.probe_ip : "";
-      measurement["report_id"] = ctx.report_id;
-      measurement["sotfware_name"] = settings_.software_name;
-      measurement["sotfware_version"] = settings_.software_version;
-      {
-        measurement["test_helpers"] = nlohmann::json::object();
-        // TODO(bassosimone): make sure this is exactly what we should send as
-        // I'm quite sure that MK sends less info than this.
-        for (auto &pair : ctx.test_helpers) {
-          auto &key = pair.first;
-          auto &values = pair.second;
-          for (auto &epnt : values) {
-            measurement["test_helpers"][key] = nlohmann::json::object();
-            measurement["test_helpers"][key]["address"] = epnt.address;
-            if (epnt.type == endpoint_type_onion) {
-              measurement["test_helpers"][key]["type"] = "onion";
-            } else if (epnt.type == endpoint_type_https) {
-              measurement["test_helpers"][key]["type"] = "https";
-            } else if (epnt.type == endpoint_type_cloudfront) {
-              measurement["test_helpers"][key]["type"] = "cloudfront";
-              measurement["test_helpers"][key]["front"] = epnt.front;
-            } else {
-              continue;
-            }
-          }
-        }
-      }
-      measurement["test_name"] = nettest_.name();
-      measurement["test_start_time"] = "XXX";  // TODO(bassosimone)
-      measurement["test_version"] = nettest_.version();
-      nlohmann::json test_keys;
-      auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
-      {
-        auto current_time = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = current_time - begin;
-        measurement["test_runtime"] = elapsed.count();
-      }
-      measurement["test_keys"] = test_keys;
-      measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip
-                                                    ? ctx.resolver_ip
-                                                    : "";
-      if (!rv) {
-        // TODO(bassosimone): emit "failure.measurement" error
-      }
-      do {
-        MeasurementEvent event;
-        try {
-          event.json_str = measurement.dump();
-        } catch (const std::exception &e) {
-          LIBNETTEST2_EMIT_WARNING("run: cannot serialize measurement: " << e.what());
-          break;  // This is MK passing us an invalid JSON; OK to tolerate?
-        }
-        event.idx = i;
-        if (!settings_.no_collector && !event.json_str.empty()) {
-          if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
-            LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
-            // TODO(bassosimone): emit failure.measurement_submission
-          } else {
-            // TODO(bassosimone): emit status.measurement_submission
-          }
-        }
-        if (!event.json_str.empty()) {
-          on_measurement(std::move(event));  // MUST be after submit_report()
-        }
-      } while (0);
-      {
-        StatusMeasurementDoneEvent event;
-        event.idx = i;
-        on_status_measurement_done(std::move(event));
-      }
+      run_with_index32(begin, inputs, ctx, collector_base_url, (uint32_t)i);
     }
   }
   {
@@ -766,12 +685,111 @@ bool Runner::run() noexcept {
   return true;
 }
 
+void Runner::run_with_index32(
+    const std::chrono::time_point<std::chrono::steady_clock> &begin,
+    const std::vector<std::string> &inputs, const NettestContext &ctx,
+    const std::string &collector_base_url, uint32_t i) const noexcept {
+  {
+    StatusMeasurementStartEvent event;
+    event.idx = i;
+    event.input = inputs[i];
+    on_status_measurement_start(std::move(event));
+  }
+  nlohmann::json measurement;
+  measurement["annotations"] = settings_.annotations;
+  measurement["annotations"]["engine_name"] = default_engine_name();
+  measurement["annotations"]["engine_version"] = version();
+  measurement["annotations"]["engine_version_full"] = version();
+  measurement["annotations"]["platform"] = LIBNETTEST2_PLATFORM;
+  measurement["annotations"]["probe_network_name"] =
+      settings_.save_real_probe_asn
+          ? ctx.probe_network_name
+          : "";
+  measurement["id"] = sole::uuid4().str();
+  measurement["input"] = inputs[i];
+  measurement["input_hashes"] = nlohmann::json::array();
+  measurement["measurement_start_time"] = "XXX";  // TODO(bassosimone)
+  measurement["options"] = nlohmann::json::array();
+  measurement["probe_asn"] = settings_.save_real_probe_asn ? ctx.probe_asn : "";
+  measurement["probe_cc"] = settings_.save_real_probe_cc ? ctx.probe_cc : "";
+  measurement["probe_ip"] = settings_.save_real_probe_ip ? ctx.probe_ip : "";
+  measurement["report_id"] = ctx.report_id;
+  measurement["sotfware_name"] = settings_.software_name;
+  measurement["sotfware_version"] = settings_.software_version;
+  {
+    measurement["test_helpers"] = nlohmann::json::object();
+    // TODO(bassosimone): make sure this is exactly what we should send as
+    // I'm quite sure that MK sends less info than this.
+    for (auto &pair : ctx.test_helpers) {
+      auto &key = pair.first;
+      auto &values = pair.second;
+      for (auto &epnt : values) {
+        measurement["test_helpers"][key] = nlohmann::json::object();
+        measurement["test_helpers"][key]["address"] = epnt.address;
+        if (epnt.type == endpoint_type_onion) {
+          measurement["test_helpers"][key]["type"] = "onion";
+        } else if (epnt.type == endpoint_type_https) {
+          measurement["test_helpers"][key]["type"] = "https";
+        } else if (epnt.type == endpoint_type_cloudfront) {
+          measurement["test_helpers"][key]["type"] = "cloudfront";
+          measurement["test_helpers"][key]["front"] = epnt.front;
+        } else {
+          continue;
+        }
+      }
+    }
+  }
+  measurement["test_name"] = nettest_.name();
+  measurement["test_start_time"] = "XXX";  // TODO(bassosimone)
+  measurement["test_version"] = nettest_.version();
+  nlohmann::json test_keys;
+  auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
+  {
+    auto current_time = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed = current_time - begin;
+    measurement["test_runtime"] = elapsed.count();
+  }
+  measurement["test_keys"] = test_keys;
+  measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip
+                                                ? ctx.resolver_ip
+                                                : "";
+  if (!rv) {
+    // TODO(bassosimone): emit "failure.measurement" error
+  }
+  do {
+    MeasurementEvent event;
+    try {
+      event.json_str = measurement.dump();
+    } catch (const std::exception &e) {
+      LIBNETTEST2_EMIT_WARNING("run: cannot serialize measurement: " << e.what());
+      break;  // This is MK passing us an invalid JSON; OK to tolerate?
+    }
+    event.idx = i;
+    if (!settings_.no_collector && !event.json_str.empty()) {
+      if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
+        LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
+        // TODO(bassosimone): emit failure.measurement_submission
+      } else {
+        // TODO(bassosimone): emit status.measurement_submission
+      }
+    }
+    if (!event.json_str.empty()) {
+      on_measurement(std::move(event));  // MUST be after submit_report()
+    }
+  } while (0);
+  {
+    StatusMeasurementDoneEvent event;
+    event.idx = i;
+    on_status_measurement_done(std::move(event));
+  }
+}
+
 void Runner::interrupt() noexcept { interrupted_ = true; }
 
 // Methods you typically want to override
 // ``````````````````````````````````````
 
-void Runner::on_log(LogEvent event) {
+void Runner::on_log(LogEvent event) const {
   switch (event.log_level) {
     case log_debug: std::clog << "[D] "; break;
     case log_warning: std::clog << "[W] "; break;
@@ -781,7 +799,7 @@ void Runner::on_log(LogEvent event) {
   std::clog << event.message << std::endl;
 }
 
-void Runner::on_measurement(MeasurementEvent event) {
+void Runner::on_measurement(MeasurementEvent event) const {
   LIBNETTEST2_EMIT_INFO("MEASUREMENT: idx=" << event.idx << " input=" << event.input
                         << "json_str='" << event.json_str << "'");
 }
@@ -792,11 +810,13 @@ void Runner::on_status_geoip_lookup(StatusGeoipLookupEvent event) {
       << " probe_network_name='" << event.probe_network_name << "'");
 }
 
-void Runner::on_status_measurement_done(StatusMeasurementDoneEvent event) {
+void Runner::on_status_measurement_done(
+    StatusMeasurementDoneEvent event) const {
   LIBNETTEST2_EMIT_INFO("DONE: idx=" << event.idx);
 }
 
-void Runner::on_status_measurement_start(StatusMeasurementStartEvent event) {
+void Runner::on_status_measurement_start(
+    StatusMeasurementStartEvent event) const {
   LIBNETTEST2_EMIT_INFO("START: idx=" << event.idx << " input=" << event.input);
 }
 
@@ -1028,7 +1048,7 @@ bool Runner::open_report(const std::string &collector_base_url,
 
 bool Runner::submit_report(const std::string &collector_base_url,
                            const std::string &report_id,
-                           const std::string &requestbody) noexcept {
+                           const std::string &requestbody) const noexcept {
   LIBNETTEST2_EMIT_DEBUG("submit_report: JSON request: " << requestbody);
   std::string responsebody;
   std::string url = collector_base_url;
@@ -1192,8 +1212,10 @@ class CurlSlist {
   ~CurlSlist() noexcept { if (slist != nullptr) curl_slist_free_all(slist); }
 };
 
-bool Runner::curlx_post_json(std::string url, std::string requestbody,
-                             long timeout, std::string *responsebody) noexcept {
+bool Runner::curlx_post_json(std::string url,
+                             std::string requestbody,
+                             long timeout,
+                             std::string *responsebody) const noexcept {
   if (responsebody == nullptr) {
     return false;
   }
@@ -1243,7 +1265,7 @@ bool Runner::curlx_get(std::string url, long timeout,
   UniqueCurl handle;
   handle.reset(::curl_easy_init());
   if (!handle) {
-    LIBNETTEST2_EMIT_WARNING("curlx_post_json: curl_easy_init() failed");
+    LIBNETTEST2_EMIT_WARNING("curlx_get: curl_easy_init() failed");
     return false;
   }
   return curlx_common(handle, std::move(url), timeout, responsebody);
@@ -1275,7 +1297,7 @@ namespace measurement_kit {
 namespace libnettest2 {
 
 bool Runner::curlx_common(UniqueCurl &handle, std::string url, long timeout,
-                          std::string *responsebody) noexcept {
+                          std::string *responsebody) const noexcept {
   if (responsebody == nullptr) {
     return false;
   }
