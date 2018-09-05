@@ -101,6 +101,7 @@ class Settings {
   bool no_cc_lookup = false;
   bool no_ip_lookup = false;
   bool no_resolver_lookup = false;
+  uint8_t parallelism = 0;
   std::string probe_ip;
   std::string probe_asn;
   std::string probe_network_name;
@@ -238,7 +239,7 @@ class Runner {
 
   bool run() noexcept;
 
-  void run_with_index32(
+  bool run_with_index32(
       const std::chrono::time_point<std::chrono::steady_clock> &begin,
       const std::vector<std::string> &inputs, const NettestContext &ctx,
       const std::string &collector_base_url, uint32_t i) const noexcept;
@@ -643,22 +644,58 @@ bool Runner::run() noexcept {
       std::mt19937 mt19937{random_device()};
       std::shuffle(inputs.begin(), inputs.end(), mt19937);
     }
+    // Implementation note: create a bunch of constant variables for the lambda
+    // to access shared stuff in a thread safe way
+    constexpr uint8_t default_parallelism = 3;
+    std::atomic<uint8_t> active{(settings_.parallelism > 0)  //
+                                    ? settings_.parallelism
+                                    : default_parallelism};
     auto begin = std::chrono::steady_clock::now();
-    for (uint64_t i = 0; i < inputs.size(); ++i) {
-      if (i > UINT32_MAX) {
-        LIBNETTEST2_EMIT_INFO("event index overflow");  // it's 32 bit
-        break;
-      }
-      {
-        auto current_time = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = current_time - begin;
-        if (settings_.max_runtime >= 0 &&
-            elapsed.count() >= settings_.max_runtime * 0.9) {
-          LIBNETTEST2_EMIT_INFO("exceeded max runtime");
-          break;
+    const std::chrono::time_point<std::chrono::steady_clock> &cbegin = begin;
+    const std::string &ccollector_base_url = collector_base_url;
+    const NettestContext &cctx = ctx;
+    const std::vector<std::string> &cinputs = inputs;
+    const Runner *cthis = this;
+    std::atomic<uint64_t> i{0};
+    std::mutex mutex;
+    for (uint8_t j = 0; j < active; ++j) {
+      // Implementation note: make sure this lambda has only access to either
+      // constant stuff or to stuff that it's thread safe.
+      auto main = [
+        &active,               // atomic
+        &cbegin,               // const ref
+        &ccollector_base_url,  // const ref
+        &cctx,                 // const ref
+        &cinputs,              // const ref,
+        &cthis,                // const pointer,
+        &i,                    // atomic
+        &mutex                 // thread safe
+      ]() noexcept {
+        // TODO(bassosimone): more work is required to actually interrupt
+        // "long" tests like NDT that take several seconds to complete
+        while (!cthis->interrupted_) {
+          uint32_t idx = 0;
+          {
+            std::unique_lock<std::mutex> _{mutex};
+            if (i > UINT32_MAX || i >= cinputs.size()) {
+              break;
+            }
+            idx = (uint32_t)i;
+            i += 1;
+          }
+          if (!cthis->run_with_index32(cbegin, cinputs, cctx,
+                                       ccollector_base_url, idx)) {
+            break;
+          }
         }
-      }
-      run_with_index32(begin, inputs, ctx, collector_base_url, (uint32_t)i);
+        active -= 1;
+      };
+      std::thread thread{std::move(main)};
+      thread.detach();
+    }
+    while (active > 0) {
+      constexpr auto msec = 250;
+      std::this_thread::sleep_for(std::chrono::milliseconds(msec));
     }
   }
   {
@@ -685,10 +722,19 @@ bool Runner::run() noexcept {
   return true;
 }
 
-void Runner::run_with_index32(
+bool Runner::run_with_index32(
     const std::chrono::time_point<std::chrono::steady_clock> &begin,
     const std::vector<std::string> &inputs, const NettestContext &ctx,
     const std::string &collector_base_url, uint32_t i) const noexcept {
+  {
+    auto current_time = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed = current_time - begin;
+    if (settings_.max_runtime >= 0 &&
+        elapsed.count() >= settings_.max_runtime * 0.9) {
+      LIBNETTEST2_EMIT_INFO("exceeded max runtime");
+      return false;
+    }
+  }
   {
     StatusMeasurementStartEvent event;
     event.idx = i;
@@ -782,6 +828,7 @@ void Runner::run_with_index32(
     event.idx = i;
     on_status_measurement_done(std::move(event));
   }
+  return true;
 }
 
 void Runner::interrupt() noexcept { interrupted_ = true; }
