@@ -190,7 +190,8 @@ class Runner {
  protected:
   // Methods you typically want to override
   // ``````````````````````````````````````
-  // They allow you to know when specific events happen.
+  // The on_event() method is called when a event occurs. Note that this
+  // method MAY be called from another thread context.
 
   virtual void on_event(const nlohmann::json &event) const noexcept;
 
@@ -453,7 +454,7 @@ bool Runner::run() noexcept {
       if (!settings_.no_ip_lookup) {
         if (!lookup_ip(&ctx.probe_ip)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
-          // TODO(bassosimone): can we map the cURL error?
+          // TODO(bassosimone): map cURL error.
           emit_ev("failure.ip_lookup", {{"failure", "generic_error"}});
         }
       }
@@ -470,7 +471,7 @@ bool Runner::run() noexcept {
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
                         &ctx.probe_network_name)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
-          // TODO(bassosimone): can we map the MMDB error?
+          // TODO(bassosimone): map MMDB error.
           emit_ev("failure.asn_lookup", {{"failure", "generic_error"}});
         }
       }
@@ -487,7 +488,7 @@ bool Runner::run() noexcept {
         if (!lookup_cc(settings_.geoip_country_path, ctx.probe_ip,
                        &ctx.probe_cc)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_cc() failed");
-          // TODO(bassosimone): map the MMDB error.
+          // TODO(bassosimone): map MMDB error.
           emit_ev("failure.cc_lookup", {{"failure", "generic_error"}});
         }
       }
@@ -508,7 +509,7 @@ bool Runner::run() noexcept {
     if (!settings_.no_resolver_lookup) {
       if (!lookup_resolver_ip(&ctx.resolver_ip)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
-        // TODO(bassosimone): map getaddrinfo error
+        // TODO(bassosimone): map getaddrinfo error.
         emit_ev("failure.resolver_lookup", {{"failure", "generic_error"}});
       }
     }
@@ -531,7 +532,7 @@ bool Runner::run() noexcept {
       }
       if (!open_report(collector_base_url, ctx, &ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
-        // TODO(bassosimone): map cURL error
+        // TODO(bassosimone): map cURL error.
         emit_ev("failure.report_create", {{"failure", "generic_error"}});
       } else {
         LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
@@ -547,21 +548,17 @@ bool Runner::run() noexcept {
       LIBNETTEST2_EMIT_WARNING("run: no input provided");
       break;
     }
+    // Note: the specification modifies settings_.inputs in place but here
+    // settings_ are immutable, so we actually fill a inputs vector using
+    // the settings_ when we expect input. Otherwise we ignore settings_.inputs.
     std::vector<std::string> inputs;
     if (nettest_.needs_input()) {
       inputs.insert(inputs.end(), settings_.inputs.begin(),
                     settings_.inputs.end());
     } else {
       if (!settings_.inputs.empty()) {
-        // TODO(bassosimone): the spec modifies settings.inputs while here
-        // we're actually changing a local copy of that. If we want to follow
-        // more closely the spec, settings should be passed as argument to
-        // this function rather than being passed to the constructor. We can
-        // otherwise modify the spec. (I kinda like immutable settings_.)
         LIBNETTEST2_EMIT_WARNING("run: got unexpected input; ignoring it");
-        // Note: because we do not consider the value of settings_.input we are
-        // in fact ignoring the value provided by the user (the following code
-        // uses `inputs` rather than `settings_.inputs`).
+        // Note: ignoring settings_.inputs in this case
       }
       inputs.push_back("");  // just one entry
     }
@@ -645,8 +642,13 @@ bool Runner::run() noexcept {
     emit_ev("status.progress", {{"percentage", 1.0},
                                 {"message", "report close"}});
   } while (0);
-  // TODO(bassosimone): emit status.end
   // TODO(bassosimone): count the number of bytes used by the nettest
+  // TODO(bassosimone): decide whether it makes sense to have an overall
+  // error code in this context (it seems not so easy).
+  emit_ev("status.end", {//
+                         {"failure", ""},
+                         {"downloaded_kb", 0},
+                         {"uploaded_kb", 0}});
   return true;
 }
 
@@ -682,8 +684,6 @@ bool Runner::run_with_index32(
       return false;
     }
   }
-  // TODO(bassosimone): the documentation should probably mention that
-  // on_event MAY be called from a background thread.
   emit_ev("status.measurement_start", {{"idx", i}, {"input", inputs[i]}});
   nlohmann::json measurement;
   measurement["annotations"] = settings_.annotations;
