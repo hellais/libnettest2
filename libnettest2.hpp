@@ -698,8 +698,14 @@ bool Runner::run() noexcept {
                     settings_.inputs.end());
     } else {
       if (!settings_.inputs.empty()) {
-        LIBNETTEST2_EMIT_WARNING("run: got unexpected input");
-        // TODO(bassosimone): here we should probably clear the input
+        // TODO(bassosimone): the spec modifies settings.inputs while here
+        // we're actually changing a local copy of that. If we want to follow
+        // more closely the spec, settings should be passed as argument to
+        // this function rather than being passed to the constructor.
+        LIBNETTEST2_EMIT_WARNING("run: got unexpected input; ignoring it");
+        // Note: because we do not consider the value of settings_.input we are
+        // in fact ignoring the value provided by the user (the following code
+        // uses `inputs` rather than `settings_.inputs`).
       }
       inputs.push_back("");  // just one entry
     }
