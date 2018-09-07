@@ -172,6 +172,11 @@ class Nettest {
 // Events
 // ``````
 
+class FailureIPLookup {
+ public:
+  std::string failure;
+};
+
 class LogEvent {
  public:
   LogLevel log_level = log_quiet;
@@ -249,6 +254,8 @@ class Runner {
 
   // Note: not using noexcept here because of SWIG. Again, if we decide to
   // avoid using SWIG, we can then ignore this concern.
+  virtual void on_failure_ip_lookup(FailureIPLookup event);
+
   virtual void on_log(LogEvent event) const;
   virtual void on_measurement(MeasurementEvent event) const;
   virtual void on_status_geoip_lookup(StatusGeoipLookupEvent event);
@@ -524,9 +531,13 @@ bool Runner::run() noexcept {
     if (settings_.probe_ip == "") {
       if (!settings_.no_ip_lookup) {
         if (!lookup_ip(&ctx.probe_ip)) {
-          // TODO(bassosimone): here we should emit "failure.ip_lookup"
-          // TODO(bassosimone): can we map the cURL error?
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
+          {
+            FailureIPLookup event;
+            // TODO(bassosimone): can we map the cURL error?
+            event.failure = "generic_error";
+            on_failure_ip_lookup(std::move(event));
+          }
         }
       }
     } else {
@@ -741,6 +752,10 @@ void Runner::interrupt() noexcept { interrupted_ = true; }
 
 // Methods you typically want to override
 // ``````````````````````````````````````
+
+void Runner::on_failure_ip_lookup(FailureIPLookup event) {
+  LIBNETTEST2_EMIT_WARNING("failure IP lookup: " << event.failure);
+}
 
 void Runner::on_log(LogEvent event) const {
   switch (event.log_level) {
