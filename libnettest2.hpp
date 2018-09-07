@@ -172,6 +172,11 @@ class Nettest {
 // Events
 // ``````
 
+class FailureASNLookup {
+ public:
+  std::string failure;
+};
+
 class FailureIPLookup {
  public:
   std::string failure;
@@ -254,6 +259,7 @@ class Runner {
 
   // Note: not using noexcept here because of SWIG. Again, if we decide to
   // avoid using SWIG, we can then ignore this concern.
+  virtual void on_failure_asn_lookup(FailureASNLookup event);
   virtual void on_failure_ip_lookup(FailureIPLookup event);
 
   virtual void on_log(LogEvent event) const;
@@ -552,8 +558,12 @@ bool Runner::run() noexcept {
       if (!settings_.no_asn_lookup) {
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
                         &ctx.probe_network_name)) {
-          // TODO(bassosimone): here we should emit "failure.asn_lookup".
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
+          {
+            // TODO(bassosimone): can we gather the MMDB error?
+            FailureASNLookup event;
+            event.failure = "generic_error";
+          }
         }
       }
     } else {
@@ -752,6 +762,10 @@ void Runner::interrupt() noexcept { interrupted_ = true; }
 
 // Methods you typically want to override
 // ``````````````````````````````````````
+
+void Runner::on_failure_asn_lookup(FailureASNLookup event) {
+  LIBNETTEST2_EMIT_WARNING("failure ASN lookup: " << event.failure);
+}
 
 void Runner::on_failure_ip_lookup(FailureIPLookup event) {
   LIBNETTEST2_EMIT_WARNING("failure IP lookup: " << event.failure);
