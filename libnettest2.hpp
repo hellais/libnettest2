@@ -172,6 +172,11 @@ class Nettest {
 // Events
 // ``````
 
+// TODO(bassosimone): if we're not interested to use SWIG directly, it MAY
+// probably make sense to directly emit the events as JSON strings since that
+// will greatly reduce the coding burden and bloat. We may also want to have
+// in input a JSON settings object, again to reduce the programmer burden.
+
 class FailureASNLookup {
  public:
   std::string failure;
@@ -188,6 +193,11 @@ class FailureIPLookup {
 };
 
 class FailureReportCreate {
+ public:
+  std::string failure;
+};
+
+class FailureReportClose {
  public:
   std::string failure;
 };
@@ -278,6 +288,7 @@ class Runner {
   virtual void on_failure_cc_lookup(FailureCCLookup event);
   virtual void on_failure_ip_lookup(FailureIPLookup event);
   virtual void on_failure_report_create(FailureReportCreate event);
+  virtual void on_failure_report_close(FailureReportClose event);
   virtual void on_failure_resolver_lookup(FailureResolverLookup event);
 
   virtual void on_log(LogEvent event) const;
@@ -782,7 +793,12 @@ bool Runner::run() noexcept {
     if (!settings_.no_collector && !ctx.report_id.empty()) {
       if (!close_report(collector_base_url, ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
-        // TODO(bassosimone): emit failure.close
+        {
+          // TODO(bassosimone): map cURL error
+          FailureReportClose event;
+          event.failure = "generic_error";
+          on_failure_report_close(std::move(event));
+        }
       } else {
         // TODO(bassosimone): emit status.close
       }
@@ -818,6 +834,10 @@ void Runner::on_failure_ip_lookup(FailureIPLookup event) {
 
 void Runner::on_failure_report_create(FailureReportCreate event) {
   LIBNETTEST2_EMIT_WARNING("failure report create: " << event.failure);
+}
+
+void Runner::on_failure_report_close(FailureReportClose event) {
+  LIBNETTEST2_EMIT_WARNING("failure report close: " << event.failure);
 }
 
 void Runner::on_failure_resolver_lookup(FailureResolverLookup event) {
