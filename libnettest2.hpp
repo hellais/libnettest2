@@ -701,7 +701,8 @@ bool Runner::run() noexcept {
         // TODO(bassosimone): the spec modifies settings.inputs while here
         // we're actually changing a local copy of that. If we want to follow
         // more closely the spec, settings should be passed as argument to
-        // this function rather than being passed to the constructor.
+        // this function rather than being passed to the constructor. We can
+        // otherwise modify the spec. (I kinda like immutable settings_.)
         LIBNETTEST2_EMIT_WARNING("run: got unexpected input; ignoring it");
         // Note: because we do not consider the value of settings_.input we are
         // in fact ignoring the value provided by the user (the following code
