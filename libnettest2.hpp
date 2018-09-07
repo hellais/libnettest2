@@ -187,6 +187,11 @@ class FailureIPLookup {
   std::string failure;
 };
 
+class FailureResolverLookup {
+ public:
+  std::string failure;
+};
+
 class LogEvent {
  public:
   LogLevel log_level = log_quiet;
@@ -267,6 +272,7 @@ class Runner {
   virtual void on_failure_asn_lookup(FailureASNLookup event);
   virtual void on_failure_cc_lookup(FailureCCLookup event);
   virtual void on_failure_ip_lookup(FailureIPLookup event);
+  virtual void on_failure_resolver_lookup(FailureResolverLookup event);
 
   virtual void on_log(LogEvent event) const;
   virtual void on_measurement(MeasurementEvent event) const;
@@ -616,7 +622,12 @@ bool Runner::run() noexcept {
     if (!settings_.no_resolver_lookup) {
       if (!lookup_resolver_ip(&ctx.resolver_ip)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
-        // TODO(bassosimone): here we should emit "failure.resolver_lookup"
+        {
+          // TODO(bassosimone): map getaddrinfo error
+          FailureResolverLookup event;
+          event.failure = "generic_error";
+          on_failure_resolver_lookup(std::move(event));
+        }
       }
     }
     LIBNETTEST2_EMIT_DEBUG("resolver_ip: " << ctx.resolver_ip);
@@ -784,6 +795,10 @@ void Runner::on_failure_cc_lookup(FailureCCLookup event) {
 
 void Runner::on_failure_ip_lookup(FailureIPLookup event) {
   LIBNETTEST2_EMIT_WARNING("failure IP lookup: " << event.failure);
+}
+
+void Runner::on_failure_resolver_lookup(FailureResolverLookup event) {
+  LIBNETTEST2_EMIT_WARNING("failure resolver lookup: " << event.failure);
 }
 
 void Runner::on_log(LogEvent event) const {
