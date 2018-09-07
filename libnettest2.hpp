@@ -775,8 +775,10 @@ bool Runner::run() noexcept {
       event.message = "measurement complete";
       on_status_progress(std::move(event));
     }
-    if (!settings_.no_collector) {
-      // TODO(bassosimone): we SHOULD NOT close a report that we could not open
+    // If the report ID is empty, it means we could not open the report for
+    // some reason earlier. In such case, it does not make any sense to attempt
+    // to close a report. It will only create noise in the backend logs.
+    if (!settings_.no_collector && !ctx.report_id.empty()) {
       if (!close_report(collector_base_url, ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
         // TODO(bassosimone): emit failure.close
@@ -976,7 +978,11 @@ bool Runner::run_with_index32(
       break;
     }
     event.idx = i;
-    if (!settings_.no_collector && !event.json_str.empty()) {
+    // When the report ID is empty, do not bother with closing the report as
+    // it means we could not open it for some reason. An empty json_str instead
+    // indicates a bug where we could not serialize a JSON.
+    if (!settings_.no_collector && !ctx.report_id.empty() &&
+        !event.json_str.empty()) {
       if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
         LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
         // TODO(bassosimone): emit failure.measurement_submission
