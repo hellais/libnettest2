@@ -254,6 +254,12 @@ class StatusReportCreateEvent {
   std::string report_id;
 };
 
+// TODO(bassosimone): make sure events have consistent naming
+class StatusReportClose {
+ public:
+  std::string report_id;
+};
+
 class StatusResolverLookupEvent {
  public:
   std::string resolver_ip;
@@ -302,6 +308,7 @@ class Runner {
       StatusMeasurementStartEvent event) const;
 
   virtual void on_status_progress(StatusProgressEvent event);
+  virtual void on_status_report_close(StatusReportClose event);
   virtual void on_status_report_create(StatusReportCreateEvent event);
   virtual void on_status_resolver_lookup(StatusResolverLookupEvent event);
   virtual void on_status_started();
@@ -800,7 +807,9 @@ bool Runner::run() noexcept {
           on_failure_report_close(std::move(event));
         }
       } else {
-        // TODO(bassosimone): emit status.close
+        StatusReportClose event;
+        event.report_id = ctx.report_id;
+        on_status_report_close(std::move(event));
       }
     }
     {
@@ -882,6 +891,10 @@ void Runner::on_status_measurement_start(
 void Runner::on_status_progress(StatusProgressEvent event) {
   LIBNETTEST2_EMIT_INFO("* " << (uint32_t)(100.0 * event.percentage) << "%: "
                         << event.message);
+}
+
+void Runner::on_status_report_close(StatusReportClose event) {
+  LIBNETTEST2_EMIT_INFO("REPORT CLOSE: id=" << event.report_id);
 }
 
 void Runner::on_status_report_create(StatusReportCreateEvent event) {
