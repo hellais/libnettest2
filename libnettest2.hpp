@@ -187,6 +187,11 @@ class FailureIPLookup {
   std::string failure;
 };
 
+class FailureReportCreate {
+ public:
+  std::string failure;
+};
+
 class FailureResolverLookup {
  public:
   std::string failure;
@@ -272,6 +277,7 @@ class Runner {
   virtual void on_failure_asn_lookup(FailureASNLookup event);
   virtual void on_failure_cc_lookup(FailureCCLookup event);
   virtual void on_failure_ip_lookup(FailureIPLookup event);
+  virtual void on_failure_report_create(FailureReportCreate event);
   virtual void on_failure_resolver_lookup(FailureResolverLookup event);
 
   virtual void on_log(LogEvent event) const;
@@ -657,7 +663,12 @@ bool Runner::run() noexcept {
       }
       if (!open_report(collector_base_url, ctx, &ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
-        // TODO(bassosimone): here we should emit "failure.report_create"
+        {
+          // TODO(bassosimone): map cURL error
+          FailureReportCreate event;
+          event.failure = "generic_error";
+          on_failure_report_create(std::move(event));
+        }
       }
       LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
     } else {
@@ -795,6 +806,10 @@ void Runner::on_failure_cc_lookup(FailureCCLookup event) {
 
 void Runner::on_failure_ip_lookup(FailureIPLookup event) {
   LIBNETTEST2_EMIT_WARNING("failure IP lookup: " << event.failure);
+}
+
+void Runner::on_failure_report_create(FailureReportCreate event) {
+  LIBNETTEST2_EMIT_WARNING("failure report create: " << event.failure);
 }
 
 void Runner::on_failure_resolver_lookup(FailureResolverLookup event) {
