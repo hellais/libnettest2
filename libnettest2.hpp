@@ -169,102 +169,6 @@ class Nettest {
   virtual ~Nettest() noexcept;
 };
 
-// Events
-// ``````
-
-// TODO(bassosimone): if we're not interested to use SWIG directly, it MAY
-// probably make sense to directly emit the events as JSON strings since that
-// will greatly reduce the coding burden and bloat. We may also want to have
-// in input a JSON settings object, again to reduce the programmer burden.
-
-class FailureASNLookup {
- public:
-  std::string failure;
-};
-
-class FailureCCLookup {
- public:
-  std::string failure;
-};
-
-class FailureIPLookup {
- public:
-  std::string failure;
-};
-
-class FailureReportCreate {
- public:
-  std::string failure;
-};
-
-class FailureReportClose {
- public:
-  std::string failure;
-};
-
-class FailureResolverLookup {
- public:
-  std::string failure;
-};
-
-class LogEvent {
- public:
-  LogLevel log_level = log_quiet;
-  std::string message;
-};
-
-// Note: better to avoid uint64_t because they translate to big
-// integers in Java, if we use SWIG. However this may just be
-// a void concern and we can reconsider this decision.
-
-class MeasurementEvent {
- public:
-  uint32_t idx = 0;
-  std::string json_str;
-  std::string input;
-};
-
-class StatusGeoipLookupEvent {
- public:
-  std::string probe_ip;
-  std::string probe_asn;
-  std::string probe_cc;
-  std::string probe_network_name;
-};
-
-class StatusMeasurementDoneEvent {
- public:
-  uint32_t idx = 0;
-};
-
-class StatusMeasurementStartEvent {
- public:
-  uint32_t idx = 0;
-  std::string input;
-};
-
-class StatusProgressEvent {
- public:
-  double percentage = 0.0;
-  std::string message;
-};
-
-class StatusReportCreateEvent {
- public:
-  std::string report_id;
-};
-
-// TODO(bassosimone): make sure events have consistent naming
-class StatusReportClose {
- public:
-  std::string report_id;
-};
-
-class StatusResolverLookupEvent {
- public:
-  std::string resolver_ip;
-};
-
 // Runner
 // ``````
 
@@ -288,34 +192,13 @@ class Runner {
   // ``````````````````````````````````````
   // They allow you to know when specific events happen.
 
-  // Note: not using noexcept here because of SWIG. Again, if we decide to
-  // avoid using SWIG, we can then ignore this concern.
-  virtual void on_failure_asn_lookup(FailureASNLookup event);
-  virtual void on_failure_cc_lookup(FailureCCLookup event);
-  virtual void on_failure_ip_lookup(FailureIPLookup event);
-  virtual void on_failure_report_create(FailureReportCreate event);
-  virtual void on_failure_report_close(FailureReportClose event);
-  virtual void on_failure_resolver_lookup(FailureResolverLookup event);
-
-  virtual void on_log(LogEvent event) const;
-  virtual void on_measurement(MeasurementEvent event) const;
-  virtual void on_status_geoip_lookup(StatusGeoipLookupEvent event);
-
-  virtual void on_status_measurement_done(
-      StatusMeasurementDoneEvent event) const;
-
-  virtual void on_status_measurement_start(
-      StatusMeasurementStartEvent event) const;
-
-  virtual void on_status_progress(StatusProgressEvent event);
-  virtual void on_status_report_close(StatusReportClose event);
-  virtual void on_status_report_create(StatusReportCreateEvent event);
-  virtual void on_status_resolver_lookup(StatusResolverLookupEvent event);
-  virtual void on_status_started();
+  virtual void on_event(const nlohmann::json &event) const noexcept;
 
   // Methods you generally DON'T want to override
   // ````````````````````````````````````````````
   // You may want to override them in unit tests, however.
+
+  virtual void emit_ev(std::string key, nlohmann::json value) const noexcept;
 
   virtual bool run_with_index32(
       const std::chrono::time_point<std::chrono::steady_clock> &begin,
@@ -504,10 +387,10 @@ uuid uuid4() {
     if (settings_.log_level >= log_##level) {   \
       std::stringstream ss;                     \
       ss << statements;                         \
-      LogEvent event;                           \
-      event.log_level = log_##level;            \
-      event.message = ss.str();                 \
-      on_log(std::move(event));                 \
+      nlohmann::json value;                     \
+      value["level"] = #level;                  \
+      value["message"] = ss.str();              \
+      emit_ev("log", std::move(value));         \
     }                                           \
   } while (0)
 
@@ -552,7 +435,7 @@ bool Runner::run() noexcept {
   // TODO(bassosimone): we have removed the part where we prevent
   // multiple nettests from running concurrently, is that OK?
   NettestContext ctx;
-  on_status_started();
+  emit_ev("status.started", nlohmann::json::object());
   {
     if (!settings_.no_bouncer) {
       if (!query_bouncer(nettest_.name(), nettest_.test_helpers(),
@@ -563,23 +446,15 @@ bool Runner::run() noexcept {
       }
     }
   }
-  {
-    StatusProgressEvent event;
-    event.percentage = 0.1;
-    event.message = "contact bouncer";
-    on_status_progress(std::move(event));
-  }
+  emit_ev("status.progress", {{"percentage", 0.1},
+                              {"message", "contact bouncer"}});
   {
     if (settings_.probe_ip == "") {
       if (!settings_.no_ip_lookup) {
         if (!lookup_ip(&ctx.probe_ip)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
-          {
-            FailureIPLookup event;
-            // TODO(bassosimone): can we map the cURL error?
-            event.failure = "generic_error";
-            on_failure_ip_lookup(std::move(event));
-          }
+          // TODO(bassosimone): can we map the cURL error?
+          emit_ev("failure.ip_lookup", {{"failure", "generic_error"}});
         }
       }
     } else {
@@ -595,11 +470,8 @@ bool Runner::run() noexcept {
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
                         &ctx.probe_network_name)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
-          {
-            // TODO(bassosimone): can we gather the MMDB error?
-            FailureASNLookup event;
-            event.failure = "generic_error";
-          }
+          // TODO(bassosimone): can we map the MMDB error?
+          emit_ev("failure.asn_lookup", {{"failure", "generic_error"}});
         }
       }
     } else {
@@ -615,12 +487,8 @@ bool Runner::run() noexcept {
         if (!lookup_cc(settings_.geoip_country_path, ctx.probe_ip,
                        &ctx.probe_cc)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_cc() failed");
-          {
-            FailureCCLookup event;
-            // TODO(bassosimone): map the MMDB error.
-            event.failure = "generic_error";
-            on_failure_cc_lookup(std::move(event));
-          }
+          // TODO(bassosimone): map the MMDB error.
+          emit_ev("failure.cc_lookup", {{"failure", "generic_error"}});
         }
       }
     } else {
@@ -628,45 +496,27 @@ bool Runner::run() noexcept {
     }
     LIBNETTEST2_EMIT_DEBUG("probe_cc: " << ctx.probe_cc);
   }
-  {
-    StatusProgressEvent event;
-    event.percentage = 0.2;
-    event.message = "geoip lookup";
-    on_status_progress(std::move(event));
-  }
-  {
-    StatusGeoipLookupEvent event;
-    event.probe_cc = ctx.probe_cc;
-    event.probe_asn = ctx.probe_asn;
-    event.probe_network_name = ctx.probe_network_name;
-    event.probe_ip = ctx.probe_ip;
-    on_status_geoip_lookup(std::move(event));
-  }
+  emit_ev("status.progress", {{"percentage", 0.2},
+                              {"message", "geoip lookup"}});
+  emit_ev("status.geoip_lookup", {
+                                     {"probe_cc", ctx.probe_cc},
+                                     {"probe_asn", ctx.probe_asn},
+                                     {"probe_ip", ctx.probe_ip},
+                                     {"probe_network_name", ctx.probe_network_name},
+                                 });
   {
     if (!settings_.no_resolver_lookup) {
       if (!lookup_resolver_ip(&ctx.resolver_ip)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
-        {
-          // TODO(bassosimone): map getaddrinfo error
-          FailureResolverLookup event;
-          event.failure = "generic_error";
-          on_failure_resolver_lookup(std::move(event));
-        }
+        // TODO(bassosimone): map getaddrinfo error
+        emit_ev("failure.resolver_lookup", {{"failure", "generic_error"}});
       }
     }
     LIBNETTEST2_EMIT_DEBUG("resolver_ip: " << ctx.resolver_ip);
   }
-  {
-    StatusProgressEvent event;
-    event.percentage = 0.3;
-    event.message = "resolver lookup";
-    on_status_progress(std::move(event));
-  }
-  {
-    StatusResolverLookupEvent event;
-    event.resolver_ip = ctx.resolver_ip;
-    on_status_resolver_lookup(std::move(event));
-  }
+  emit_ev("status.progress", {{"percentage", 0.3},
+                              {"message", "resolver lookup"}});
+  emit_ev("status.resolver_lookup", {{"resolver_ip", ctx.resolver_ip}});
   std::string collector_base_url;
   if (!settings_.no_collector) {
     if (settings_.collector_base_url == "") {
@@ -681,30 +531,17 @@ bool Runner::run() noexcept {
       }
       if (!open_report(collector_base_url, ctx, &ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
-        {
-          // TODO(bassosimone): map cURL error
-          FailureReportCreate event;
-          event.failure = "generic_error";
-          on_failure_report_create(std::move(event));
-        }
+        // TODO(bassosimone): map cURL error
+        emit_ev("failure.report_create", {{"failure", "generic_error"}});
       } else {
         LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
-        {
-          StatusReportCreateEvent event;
-          event.report_id = ctx.report_id;
-          on_status_report_create(std::move(event));
-        }
+        emit_ev("status.report_create", {{"report_id", ctx.report_id}});
       }
     } else {
       collector_base_url = settings_.collector_base_url;
     }
   }
-  {
-    StatusProgressEvent event;
-    event.percentage = 0.4;
-    event.message = "open report";
-    on_status_progress(std::move(event));
-  }
+  emit_ev("status.progress", {{"percentage", 0.4}, {"message", "open report"}});
   do {
     if (nettest_.needs_input() && settings_.inputs.empty()) {
       LIBNETTEST2_EMIT_WARNING("run: no input provided");
@@ -768,6 +605,9 @@ bool Runner::run() noexcept {
           uint32_t idx = 0;
           {
             std::unique_lock<std::mutex> _{mutex};
+            // Implementation note: we currently limit the maximum value of
+            // the index to UINT32_MAX on the grounds that in Java it's painful
+            // to deal with unsigned 64 bit integers.
             if (i > UINT32_MAX || i >= cinputs.size()) {
               break;
             }
@@ -788,36 +628,22 @@ bool Runner::run() noexcept {
       constexpr auto msec = 250;
       std::this_thread::sleep_for(std::chrono::milliseconds(msec));
     }
-    {
-      StatusProgressEvent event;
-      event.percentage = 0.9;
-      event.message = "measurement complete";
-      on_status_progress(std::move(event));
-    }
+    emit_ev("status.progress", {{"percentage", 0.9},
+                                {"message", "measurement complete"}});
     // If the report ID is empty, it means we could not open the report for
     // some reason earlier. In such case, it does not make any sense to attempt
     // to close a report. It will only create noise in the backend logs.
     if (!settings_.no_collector && !ctx.report_id.empty()) {
       if (!close_report(collector_base_url, ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
-        {
-          // TODO(bassosimone): map cURL error
-          FailureReportClose event;
-          event.failure = "generic_error";
-          on_failure_report_close(std::move(event));
-        }
+        // TODO(bassosimone): map cURL error
+        emit_ev("failure.report_close", {{"failure", "generic_error"}});
       } else {
-        StatusReportClose event;
-        event.report_id = ctx.report_id;
-        on_status_report_close(std::move(event));
+        emit_ev("status.report_close", {{"report_id", ctx.report_id}});
       }
     }
-    {
-      StatusProgressEvent event;
-      event.percentage = 1.0;
-      event.message = "report close";
-      on_status_progress(std::move(event));
-    }
+    emit_ev("status.progress", {{"percentage", 1.0},
+                                {"message", "report close"}});
   } while (0);
   // TODO(bassosimone): emit status.end
   // TODO(bassosimone): count the number of bytes used by the nettest
@@ -829,86 +655,17 @@ void Runner::interrupt() noexcept { interrupted_ = true; }
 // Methods you typically want to override
 // ``````````````````````````````````````
 
-void Runner::on_failure_asn_lookup(FailureASNLookup event) {
-  LIBNETTEST2_EMIT_WARNING("failure ASN lookup: " << event.failure);
+void Runner::on_event(const nlohmann::json &event) const noexcept {
+  std::clog << event.dump() << std::endl;
 }
-
-void Runner::on_failure_cc_lookup(FailureCCLookup event) {
-  LIBNETTEST2_EMIT_WARNING("failure CC lookup: " << event.failure);
-}
-
-void Runner::on_failure_ip_lookup(FailureIPLookup event) {
-  LIBNETTEST2_EMIT_WARNING("failure IP lookup: " << event.failure);
-}
-
-void Runner::on_failure_report_create(FailureReportCreate event) {
-  LIBNETTEST2_EMIT_WARNING("failure report create: " << event.failure);
-}
-
-void Runner::on_failure_report_close(FailureReportClose event) {
-  LIBNETTEST2_EMIT_WARNING("failure report close: " << event.failure);
-}
-
-void Runner::on_failure_resolver_lookup(FailureResolverLookup event) {
-  LIBNETTEST2_EMIT_WARNING("failure resolver lookup: " << event.failure);
-}
-
-void Runner::on_log(LogEvent event) const {
-  switch (event.log_level) {
-    case log_debug: std::clog << "[D] "; break;
-    case log_warning: std::clog << "[W] "; break;
-    case log_info: break;
-    default:
-      assert(false);  // This should not happen
-      return;
-  }
-  std::clog << event.message << std::endl;
-}
-
-void Runner::on_measurement(MeasurementEvent event) const {
-  LIBNETTEST2_EMIT_INFO("MEASUREMENT: idx=" << event.idx << " input="
-                                            << event.input
-                                            << "json_str='"
-                                            << event.json_str << "'");
-}
-
-void Runner::on_status_geoip_lookup(StatusGeoipLookupEvent event) {
-  LIBNETTEST2_EMIT_INFO("GEOIP LOOKUP: probe_ip=" << event.probe_ip
-      << " probe_asn=" << event.probe_asn << " probe_cc=" << event.probe_cc
-      << " probe_network_name='" << event.probe_network_name << "'");
-}
-
-void Runner::on_status_measurement_done(
-    StatusMeasurementDoneEvent event) const {
-  LIBNETTEST2_EMIT_INFO("DONE: idx=" << event.idx);
-}
-
-void Runner::on_status_measurement_start(
-    StatusMeasurementStartEvent event) const {
-  LIBNETTEST2_EMIT_INFO("START: idx=" << event.idx << " input=" << event.input);
-}
-
-void Runner::on_status_progress(StatusProgressEvent event) {
-  LIBNETTEST2_EMIT_INFO("* " << (uint32_t)(100.0 * event.percentage) << "%: "
-                        << event.message);
-}
-
-void Runner::on_status_report_close(StatusReportClose event) {
-  LIBNETTEST2_EMIT_INFO("REPORT CLOSE: id=" << event.report_id);
-}
-
-void Runner::on_status_report_create(StatusReportCreateEvent event) {
-  LIBNETTEST2_EMIT_INFO("REPORT CREATE: id=" << event.report_id);
-}
-
-void Runner::on_status_resolver_lookup(StatusResolverLookupEvent event) {
-  LIBNETTEST2_EMIT_INFO("RESOLVER LOOKUP: ip=" << event.resolver_ip);
-}
-
-void Runner::on_status_started() { LIBNETTEST2_EMIT_INFO("STARTED"); }
 
 // Methods you generally DON'T want to override
 // ````````````````````````````````````````````
+
+void Runner::emit_ev(std::string key, nlohmann::json value) const noexcept {
+  assert(value.is_object());
+  on_event({{"key", std::move(key)}, {"value", std::move(value)}});
+}
 
 bool Runner::run_with_index32(
     const std::chrono::time_point<std::chrono::steady_clock> &begin,
@@ -925,14 +682,9 @@ bool Runner::run_with_index32(
       return false;
     }
   }
-  {
-    StatusMeasurementStartEvent event;
-    event.idx = i;
-    event.input = inputs[i];
-    // TODO(bassosimone): the documentation should probably mention that
-    // some callbacks are going to be called from a background thread.
-    on_status_measurement_start(std::move(event));
-  }
+  // TODO(bassosimone): the documentation should probably mention that
+  // on_event MAY be called from a background thread.
+  emit_ev("status.measurement_start", {{"idx", i}, {"input", inputs[i]}});
   nlohmann::json measurement;
   measurement["annotations"] = settings_.annotations;
   // TODO(bassosimone): it should actually be better to allow the core of
@@ -1002,39 +754,33 @@ bool Runner::run_with_index32(
     // TODO(bassosimone): we should standardize the errors we emit.
   }
   do {
-    MeasurementEvent event;
+    std::string str;
     try {
-      event.json_str = measurement.dump();
+      str = measurement.dump();
     } catch (const std::exception &e) {
       LIBNETTEST2_EMIT_WARNING("run: cannot serialize JSON: " << e.what());
       // TODO(bassosimone): This is MK passing us an invalid JSON. Should we
       // submit something nonetheless as a form of telemetry?
       break;
     }
-    event.idx = i;
     // When the report ID is empty, do not bother with closing the report as
-    // it means we could not open it for some reason. An empty json_str instead
+    // it means we could not open it for some reason. An empty str instead
     // indicates a bug where we could not serialize a JSON.
-    if (!settings_.no_collector && !ctx.report_id.empty() &&
-        !event.json_str.empty()) {
-      if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
+    if (!settings_.no_collector && !ctx.report_id.empty() && !str.empty()) {
+      if (!submit_report(collector_base_url, ctx.report_id, str)) {
         LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
         // TODO(bassosimone): emit failure.measurement_submission
       } else {
         // TODO(bassosimone): emit status.measurement_submission
       }
     }
-    if (!event.json_str.empty()) {
+    if (!str.empty()) {
       // According to several discussions with @lorenzoPrimi, it is much better
       // for this event to be emitted AFTER submitting the report.
-      on_measurement(std::move(event));
+      emit_ev("measurement", {{"idx", i}, {"json_str", std::move(str)}});
     }
   } while (0);
-  {
-    StatusMeasurementDoneEvent event;
-    event.idx = i;
-    on_status_measurement_done(std::move(event));
-  }
+  emit_ev("status.measurement_done", {{"idx", i}});
   return true;
 }
 
