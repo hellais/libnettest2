@@ -34,10 +34,10 @@
 // Check dependencies
 // ``````````````````
 #ifndef NLOHMANN_JSON_VERSION_MAJOR
-#error "Libndt depends on nlohmann/json. Include nlohmann/json before including libndt."
+#error "Libnettest2 depends on nlohmann/json. Include nlohmann/json before including libnettest2."
 #endif  // !NLOHMANN_JSON_VERSION_MAJOR
 #if NLOHMANN_JSON_VERSION_MAJOR < 3
-#error "Libndt requires nlohmann/json >= 3"
+#error "Libnettest2 requires nlohmann/json >= 3"
 #endif
 
 namespace measurement_kit {
@@ -164,7 +164,7 @@ class Nettest {
   virtual bool run(const Settings &settings,
                    const NettestContext &context,
                    std::string input,
-                   nlohmann::json *result) noexcept;
+                   nlohmann::json *test_keys) noexcept;
 
   virtual ~Nettest() noexcept;
 };
@@ -179,7 +179,8 @@ class LogEvent {
 };
 
 // Note: better to avoid uint64_t because they translate to big
-// integers in Java
+// integers in Java, if we use SWIG. However this may just be
+// a void concern and we can reconsider this decision.
 
 class MeasurementEvent {
  public:
@@ -239,18 +240,15 @@ class Runner {
 
   bool run() noexcept;
 
-  bool run_with_index32(
-      const std::chrono::time_point<std::chrono::steady_clock> &begin,
-      const std::vector<std::string> &inputs, const NettestContext &ctx,
-      const std::string &collector_base_url, uint32_t i) const noexcept;
-
   void interrupt() noexcept;
 
  protected:
   // Methods you typically want to override
   // ``````````````````````````````````````
+  // They allow you to know when specific events happen.
 
-  // Note: not using noexcept here because of SWIG
+  // Note: not using noexcept here because of SWIG. Again, if we decide to
+  // avoid using SWIG, we can then ignore this concern.
   virtual void on_log(LogEvent event) const;
   virtual void on_measurement(MeasurementEvent event) const;
   virtual void on_status_geoip_lookup(StatusGeoipLookupEvent event);
@@ -268,6 +266,12 @@ class Runner {
 
   // Methods you generally DON'T want to override
   // ````````````````````````````````````````````
+  // You may want to override them in unit tests, however.
+
+  virtual bool run_with_index32(
+      const std::chrono::time_point<std::chrono::steady_clock> &begin,
+      const std::vector<std::string> &inputs, const NettestContext &ctx,
+      const std::string &collector_base_url, uint32_t i) const noexcept;
 
   virtual bool query_bouncer(std::string nettest_name,
                              std::vector<std::string> nettest_helper_names,
@@ -373,52 +377,52 @@ class uuid {
 uuid uuid4();
 
 std::string uuid::str() {
-    std::stringstream ss;
-    ss << std::hex << std::nouppercase << std::setfill('0');
+  std::stringstream ss;
+  ss << std::hex << std::nouppercase << std::setfill('0');
 
-    uint32_t a = (ab >> 32);
-    uint32_t b = (ab & 0xFFFFFFFF);
-    uint32_t c = (cd >> 32);
-    uint32_t d = (cd & 0xFFFFFFFF);
+  uint32_t a = (ab >> 32);
+  uint32_t b = (ab & 0xFFFFFFFF);
+  uint32_t c = (cd >> 32);
+  uint32_t d = (cd & 0xFFFFFFFF);
 
-    ss << std::setw(8) << (a) << '-';
-    ss << std::setw(4) << (b >> 16) << '-';
-    ss << std::setw(4) << (b & 0xFFFF) << '-';
-    ss << std::setw(4) << (c >> 16) << '-';
-    ss << std::setw(4) << (c & 0xFFFF);
-    ss << std::setw(8) << d;
+  ss << std::setw(8) << (a) << '-';
+  ss << std::setw(4) << (b >> 16) << '-';
+  ss << std::setw(4) << (b & 0xFFFF) << '-';
+  ss << std::setw(4) << (c >> 16) << '-';
+  ss << std::setw(4) << (c & 0xFFFF);
+  ss << std::setw(8) << d;
 
-    return ss.str();
+  return ss.str();
 }
 
 uuid uuid4() {
-    std::random_device rd;
-    std::uniform_int_distribution<uint64_t> dist(0, (uint64_t)(~0));
-    uuid my;
+  std::random_device rd;
+  std::uniform_int_distribution<uint64_t> dist(0, (uint64_t)(~0));
+  uuid my;
 
-    my.ab = dist(rd);
-    my.cd = dist(rd);
+  my.ab = dist(rd);
+  my.cd = dist(rd);
 
-    /* The version 4 UUID is meant for generating UUIDs from truly-random or
-       pseudo-random numbers.
+  /* The version 4 UUID is meant for generating UUIDs from truly-random or
+     pseudo-random numbers.
 
-       The algorithm is as follows:
+     The algorithm is as follows:
 
-       o  Set the four most significant bits (bits 12 through 15) of the
-          time_hi_and_version field to the 4-bit version number from
-          Section 4.1.3.
+     o  Set the four most significant bits (bits 12 through 15) of the
+        time_hi_and_version field to the 4-bit version number from
+        Section 4.1.3.
 
-       o  Set the two most significant bits (bits 6 and 7) of the
-          clock_seq_hi_and_reserved to zero and one, respectively.
+     o  Set the two most significant bits (bits 6 and 7) of the
+        clock_seq_hi_and_reserved to zero and one, respectively.
 
-       o  Set all the other bits to randomly (or pseudo-randomly) chosen
-          values.
+     o  Set all the other bits to randomly (or pseudo-randomly) chosen
+        values.
 
-       See <https://tools.ietf.org/html/rfc4122#section-4.4>. */
-    my.ab = (my.ab & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
-    my.cd = (my.cd & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+     See <https://tools.ietf.org/html/rfc4122#section-4.4>. */
+  my.ab = (my.ab & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+  my.cd = (my.cd & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
 
-    return my;
+  return my;
 }
 
 }  // namespace sole
@@ -480,6 +484,7 @@ bool Nettest::needs_input() const noexcept { return false; }
 
 bool Nettest::run(const Settings &, const NettestContext &,
                   std::string, nlohmann::json *) noexcept {
+  // Do nothing for two seconds, for testing
   std::this_thread::sleep_for(std::chrono::seconds(2));
   return true;
 }
@@ -520,6 +525,7 @@ bool Runner::run() noexcept {
       if (!settings_.no_ip_lookup) {
         if (!lookup_ip(&ctx.probe_ip)) {
           // TODO(bassosimone): here we should emit "failure.ip_lookup"
+          // TODO(bassosimone): can we map the cURL error?
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
         }
       }
@@ -529,11 +535,13 @@ bool Runner::run() noexcept {
     LIBNETTEST2_EMIT_DEBUG("probe_ip: " << ctx.probe_ip);
   }
   {
+    // Implementation detail: if probe_asn is empty then we will also overwrite
+    // the value inside of probe_network_name even if it's non-empty.
     if (settings_.probe_asn == "") {
       if (!settings_.no_asn_lookup) {
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
                         &ctx.probe_network_name)) {
-          // TODO(bassosimone): here we should emit "failure.asn_lookup"
+          // TODO(bassosimone): here we should emit "failure.asn_lookup".
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
         }
       }
@@ -597,7 +605,7 @@ bool Runner::run() noexcept {
     if (settings_.collector_base_url == "") {
       // TODO(bassosimone): here the algorithm for selecting a collector
       // is very basic but mirrors the one in MK. We should probably make
-      // the code better and also use cloudfronted if needed.
+      // the code better to use cloudfronted and/or Tor if needed.
       for (auto &epnt : ctx.collectors) {
         if (epnt.type == endpoint_type_https) {
           collector_base_url = epnt.address;
@@ -620,6 +628,8 @@ bool Runner::run() noexcept {
     on_status_progress(std::move(event));
   }
   {
+    // TODO(bassosimone): should we emit this event if we do not have a
+    // valid report id?
     StatusReportCreateEvent event;
     event.report_id = ctx.report_id;
     on_status_report_create(std::move(event));
@@ -636,6 +646,7 @@ bool Runner::run() noexcept {
     } else {
       if (!settings_.inputs.empty()) {
         LIBNETTEST2_EMIT_WARNING("run: got unexpected input");
+        // TODO(bassosimone): here we should probably clear the input
       }
       inputs.push_back("");  // just one entry
     }
@@ -644,9 +655,11 @@ bool Runner::run() noexcept {
       std::mt19937 mt19937{random_device()};
       std::shuffle(inputs.begin(), inputs.end(), mt19937);
     }
-    // Implementation note: create a bunch of constant variables for the lambda
-    // to access shared stuff in a thread safe way
+    // Implementation note: here we create a bunch of constant variables for
+    // the lambda to access shared stuff in a thread safe way
     constexpr uint8_t default_parallelism = 3;
+    // TODO(bassosimone): maybe do not spawn too many threads if we do not
+    // actually need that because we do not have any input?
     std::atomic<uint8_t> active{(settings_.parallelism > 0)  //
                                     ? settings_.parallelism
                                     : default_parallelism};
@@ -705,6 +718,7 @@ bool Runner::run() noexcept {
     on_status_progress(std::move(event));
   }
   if (!settings_.no_collector) {
+    // TODO(bassosimone): we SHOULD NOT close a report that we could not open
     if (!close_report(collector_base_url, ctx.report_id)) {
       LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
       // TODO(bassosimone): emit failure.close
@@ -719,8 +733,67 @@ bool Runner::run() noexcept {
     on_status_progress(std::move(event));
   }
   // TODO(bassosimone): emit status.end
+  // TODO(bassosimone): count the number of bytes used by the nettest
   return true;
 }
+
+void Runner::interrupt() noexcept { interrupted_ = true; }
+
+// Methods you typically want to override
+// ``````````````````````````````````````
+
+void Runner::on_log(LogEvent event) const {
+  switch (event.log_level) {
+    case log_debug: std::clog << "[D] "; break;
+    case log_warning: std::clog << "[W] "; break;
+    case log_info: break;
+    default:
+      assert(false);  // This should not happen
+      return;
+  }
+  std::clog << event.message << std::endl;
+}
+
+void Runner::on_measurement(MeasurementEvent event) const {
+  LIBNETTEST2_EMIT_INFO("MEASUREMENT: idx=" << event.idx << " input="
+                                            << event.input
+                                            << "json_str='"
+                                            << event.json_str << "'");
+}
+
+void Runner::on_status_geoip_lookup(StatusGeoipLookupEvent event) {
+  LIBNETTEST2_EMIT_INFO("GEOIP LOOKUP: probe_ip=" << event.probe_ip
+      << " probe_asn=" << event.probe_asn << " probe_cc=" << event.probe_cc
+      << " probe_network_name='" << event.probe_network_name << "'");
+}
+
+void Runner::on_status_measurement_done(
+    StatusMeasurementDoneEvent event) const {
+  LIBNETTEST2_EMIT_INFO("DONE: idx=" << event.idx);
+}
+
+void Runner::on_status_measurement_start(
+    StatusMeasurementStartEvent event) const {
+  LIBNETTEST2_EMIT_INFO("START: idx=" << event.idx << " input=" << event.input);
+}
+
+void Runner::on_status_progress(StatusProgressEvent event) {
+  LIBNETTEST2_EMIT_INFO("* " << (uint32_t)(100.0 * event.percentage) << "%: "
+                        << event.message);
+}
+
+void Runner::on_status_report_create(StatusReportCreateEvent event) {
+  LIBNETTEST2_EMIT_INFO("REPORT CREATE: id=" << event.report_id);
+}
+
+void Runner::on_status_resolver_lookup(StatusResolverLookupEvent event) {
+  LIBNETTEST2_EMIT_INFO("RESOLVER LOOKUP: ip=" << event.resolver_ip);
+}
+
+void Runner::on_status_started() { LIBNETTEST2_EMIT_INFO("STARTED"); }
+
+// Methods you generally DON'T want to override
+// ````````````````````````````````````````````
 
 bool Runner::run_with_index32(
     const std::chrono::time_point<std::chrono::steady_clock> &begin,
@@ -729,6 +802,8 @@ bool Runner::run_with_index32(
   {
     auto current_time = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = current_time - begin;
+    // We call a nettest done when we reach 90% of the expected runtime. This
+    // accounts for possible errors and for the time for closing the report.
     if (settings_.max_runtime >= 0 &&
         elapsed.count() >= settings_.max_runtime * 0.9) {
       LIBNETTEST2_EMIT_INFO("exceeded max runtime");
@@ -739,10 +814,14 @@ bool Runner::run_with_index32(
     StatusMeasurementStartEvent event;
     event.idx = i;
     event.input = inputs[i];
+    // TODO(bassosimone): the documentation should probably mention that
+    // some callbacks are going to be called from a background thread.
     on_status_measurement_start(std::move(event));
   }
   nlohmann::json measurement;
   measurement["annotations"] = settings_.annotations;
+  // TODO(bassosimone): it should actually be better to allow the core of
+  // MK to override the following three values:
   measurement["annotations"]["engine_name"] = default_engine_name();
   measurement["annotations"]["engine_version"] = version();
   measurement["annotations"]["engine_version_full"] = version();
@@ -780,7 +859,7 @@ bool Runner::run_with_index32(
           measurement["test_helpers"][key]["type"] = "cloudfront";
           measurement["test_helpers"][key]["front"] = epnt.front;
         } else {
-          continue;
+          // NOTHING
         }
       }
     }
@@ -791,36 +870,45 @@ bool Runner::run_with_index32(
   nlohmann::json test_keys;
   auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
   {
+    // TODO(bassosimone): This seems to be the elapsed time since the begin
+    // of the whole test, however that seems to be incorrect.
     auto current_time = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = current_time - begin;
     measurement["test_runtime"] = elapsed.count();
   }
+  // We fill the resolver_ip after the measurement. Doing that before may allow
+  // the nettest to overwrite the resolver_ip field set by us.
   measurement["test_keys"] = test_keys;
   measurement["test_keys"]["resolver_ip"] = settings_.save_real_resolver_ip
                                                 ? ctx.resolver_ip
                                                 : "";
   if (!rv) {
-    // TODO(bassosimone): emit "failure.measurement" error
+    // TODO(bassosimone): emit "failure.measurement" error.
+    // TODO(bassosimone): we should standardize the errors we emit.
   }
   do {
     MeasurementEvent event;
     try {
       event.json_str = measurement.dump();
     } catch (const std::exception &e) {
-      LIBNETTEST2_EMIT_WARNING("run: cannot serialize measurement: " << e.what());
-      break;  // This is MK passing us an invalid JSON; OK to tolerate?
+      LIBNETTEST2_EMIT_WARNING("run: cannot serialize JSON: " << e.what());
+      // TODO(bassosimone): This is MK passing us an invalid JSON. Should we
+      // submit something nonetheless as a form of telemetry?
+      break;
     }
     event.idx = i;
     if (!settings_.no_collector && !event.json_str.empty()) {
       if (!submit_report(collector_base_url, ctx.report_id, event.json_str)) {
-        LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
+        LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
         // TODO(bassosimone): emit failure.measurement_submission
       } else {
         // TODO(bassosimone): emit status.measurement_submission
       }
     }
     if (!event.json_str.empty()) {
-      on_measurement(std::move(event));  // MUST be after submit_report()
+      // According to several discussions with @lorenzoPrimi, it is much better
+      // for this event to be emitted AFTER submitting the report.
+      on_measurement(std::move(event));
     }
   } while (0);
   {
@@ -831,60 +919,8 @@ bool Runner::run_with_index32(
   return true;
 }
 
-void Runner::interrupt() noexcept { interrupted_ = true; }
-
-// Methods you typically want to override
-// ``````````````````````````````````````
-
-void Runner::on_log(LogEvent event) const {
-  switch (event.log_level) {
-    case log_debug: std::clog << "[D] "; break;
-    case log_warning: std::clog << "[W] "; break;
-    case log_info: break;
-    default: return;
-  }
-  std::clog << event.message << std::endl;
-}
-
-void Runner::on_measurement(MeasurementEvent event) const {
-  LIBNETTEST2_EMIT_INFO("MEASUREMENT: idx=" << event.idx << " input=" << event.input
-                        << "json_str='" << event.json_str << "'");
-}
-
-void Runner::on_status_geoip_lookup(StatusGeoipLookupEvent event) {
-  LIBNETTEST2_EMIT_INFO("GEOIP LOOKUP: probe_ip=" << event.probe_ip
-      << " probe_asn=" << event.probe_asn << " probe_cc=" << event.probe_cc
-      << " probe_network_name='" << event.probe_network_name << "'");
-}
-
-void Runner::on_status_measurement_done(
-    StatusMeasurementDoneEvent event) const {
-  LIBNETTEST2_EMIT_INFO("DONE: idx=" << event.idx);
-}
-
-void Runner::on_status_measurement_start(
-    StatusMeasurementStartEvent event) const {
-  LIBNETTEST2_EMIT_INFO("START: idx=" << event.idx << " input=" << event.input);
-}
-
-void Runner::on_status_progress(StatusProgressEvent event) {
-  LIBNETTEST2_EMIT_INFO("* " << (uint32_t)(100.0 * event.percentage) << "%: "
-                        << event.message);
-}
-
-void Runner::on_status_report_create(StatusReportCreateEvent event) {
-  LIBNETTEST2_EMIT_INFO("REPORT CREATE: id=" << event.report_id);
-}
-
-void Runner::on_status_resolver_lookup(StatusResolverLookupEvent event) {
-  LIBNETTEST2_EMIT_INFO("RESOLVER LOOKUP: ip=" << event.resolver_ip);
-}
-
-void Runner::on_status_started() { LIBNETTEST2_EMIT_INFO("STARTED"); }
-
-// Methods you generally DON'T want to override
-// ````````````````````````````````````````````
-
+// TODO(bassosimone): we should _probably_ make this configurable. One way to
+// do that MAY be to use the net/timeout setting.
 constexpr long curl_timeout = 5;
 
 bool Runner::query_bouncer(std::string nettest_name,
@@ -899,6 +935,8 @@ bool Runner::query_bouncer(std::string nettest_name,
   }
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: nettest_version: " << nettest_version);
   if (collectors == nullptr || test_helpers == nullptr) {
+    LIBNETTEST2_EMIT_WARNING("query_bouncer: passed null pointers");
+    assert(false);  // See this programmer error
     return false;
   }
   test_helpers->clear();
@@ -914,10 +952,13 @@ bool Runner::query_bouncer(std::string nettest_name,
     doc["net-tests"][0]["version"] = nettest_version;
     requestbody = doc.dump();
   } catch (const std::exception &) {
+    LIBNETTEST2_EMIT_WARNING("query_bouncer: cannot serialize request");
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: JSON request: " << requestbody);
   std::string responsebody;
+  // TODO(bassosimone): we should probably discuss with @hellais whether we
+  // like that currently we do not have a cloudfronted bouncer fallback
   std::string url = settings_.bouncer_base_url;
   url += "/bouncer/net-tests";
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: URL: " << url);
@@ -927,47 +968,48 @@ bool Runner::query_bouncer(std::string nettest_name,
   }
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: JSON reply: " << responsebody);
   try {
-    // TODO(bassosimone): make processing more flexible and robust
+    // TODO(bassosimone): make processing more flexible and robust. Here we
+    // are making strong assumptions on the returned object type.
     auto doc = nlohmann::json::parse(responsebody);
-    for (auto &entry : doc["net-tests"]) {
+    for (auto &entry : doc.at("net-tests")) {
       {
         EndpointInfo info;
         info.type = endpoint_type_onion;
-        info.address = entry["collector"];
+        info.address = entry.at("collector");
         collectors->push_back(std::move(info));
       }
-      for (auto &entry : entry["collector-alternate"]) {
+      for (auto &entry : entry.at("collector-alternate")) {
         EndpointInfo info;
-        if (entry["type"] == "https") {
+        if (entry.at("type") == "https") {
           info.type = endpoint_type_https;
-          info.address = entry["address"];
-        } else if (entry["type"] == "cloudfront") {
+          info.address = entry.at("address");
+        } else if (entry.at("type") == "cloudfront") {
           info.type = endpoint_type_cloudfront;
-          info.address = entry["address"];
-          info.front = entry["front"];
+          info.address = entry.at("address");
+          info.front = entry.at("front");
         } else {
           continue;
         }
         collectors->push_back(std::move(info));
       }
-      for (auto &entry : entry["test-helpers"].items()) {
+      for (auto &entry : entry.at("test-helpers").items()) {
         std::string key = entry.key();
         EndpointInfo info;
         info.type = endpoint_type_onion;
         info.address = entry.value();
         (*test_helpers)[key].push_back(std::move(info));
       }
-      for (auto &entry : entry["test-helpers-alternate"].items()) {
+      for (auto &entry : entry.at("test-helpers-alternate").items()) {
         std::string key = entry.key();
         for (auto &entry : entry.value()) {
           EndpointInfo info;
-          if (entry["type"] == "https") {
+          if (entry.at("type") == "https") {
             info.type = endpoint_type_https;
-            info.address = entry["address"];
-          } else if (entry["type"] == "cloudfront") {
+            info.address = entry.at("address");
+          } else if (entry.at("type") == "cloudfront") {
             info.type = endpoint_type_cloudfront;
-            info.address = entry["address"];
-            info.front = entry["front"];
+            info.address = entry.at("address");
+            info.front = entry.at("front");
           } else {
             continue;
           }
@@ -975,23 +1017,23 @@ bool Runner::query_bouncer(std::string nettest_name,
         }
       }
     }
-  } catch (const std::exception &) {
+  } catch (const std::exception &exc) {
+    LIBNETTEST2_EMIT_WARNING("query_bouncer: cannot process response: "
+                             << exc.what());
     return false;
   }
-  if (settings_.log_level >= log_debug) {
-    for (auto &info : *collectors) {
-      LIBNETTEST2_EMIT_DEBUG("query_bouncer: collector: address='"
-        << info.address << "' type=" << (uint32_t)info.type
+  for (auto &info : *collectors) {
+    LIBNETTEST2_EMIT_DEBUG("query_bouncer: collector: address='"
+      << info.address << "' type=" << (uint32_t)info.type
+      << " front='" << info.front << "'");
+  }
+  for (auto &pair : *test_helpers) {
+    auto &values = pair.second;
+    auto &key = pair.first;
+    for (auto &info : values) {
+      LIBNETTEST2_EMIT_DEBUG("query_bouncer: test_helper: key='" << key
+        << "' address='" << info.address << "' type=" << (uint32_t)info.type
         << " front='" << info.front << "'");
-    }
-    for (auto &pair : *test_helpers) {
-      auto &values = pair.second;
-      auto &key = pair.first;
-      for (auto &info : values) {
-        LIBNETTEST2_EMIT_DEBUG("query_bouncer: test_helper: key='" << key
-          << "' address='" << info.address << "' type=" << (uint32_t)info.type
-          << " front='" << info.front << "'");
-      }
     }
   }
   return true;
@@ -1008,6 +1050,7 @@ static bool xml_extract(std::string input, std::string open_tag,
   input = input.substr(0, pos);
   for (auto ch : input) {
     if (isspace(ch)) continue;
+    // TODO(bassosimone): perhaps reject input that is not printable?
     *result += tolower(ch);
   }
   return true;
@@ -1017,6 +1060,8 @@ bool Runner::lookup_ip(std::string *ip) noexcept {
   if (ip == nullptr) return false;
   ip->clear();
   std::string responsebody;
+  // TODO(bassosimone): as discussed several time with @hellais, here we can
+  // implement other services for getting our own IP address.
   std::string url = "https://geoip.ubuntu.com/lookup";
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: URL: " << url);
   if (!curlx_get(std::move(url), curl_timeout, &responsebody)) {
@@ -1029,6 +1074,11 @@ bool Runner::lookup_ip(std::string *ip) noexcept {
 bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
   if (ip == nullptr) return false;
   ip->clear();
+  // TODO(bassosimone): so, here we use getaddrinfo() because we want to know
+  // what resolver has the user configured by default. However, the nettest
+  // MAY use another resolver. It's important to decide whether this would be
+  // a problem or not. There is also a _third_ case, i.e. the Vodafone-like
+  // case where there is a transparent DNS proxy.
   addrinfo hints{};
   hints.ai_family = AF_INET;
   hints.ai_flags |= AI_NUMERICSERV;
@@ -1044,13 +1094,16 @@ bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
     if (::getnameinfo(ai->ai_addr, ai->ai_addrlen, host, NI_MAXHOST, nullptr,
         0, NI_NUMERICHOST) != 0) {
       LIBNETTEST2_EMIT_WARNING("lookup_resolver_ip: getnameinfo() failed");
-      break;
+      break;  // This should not happen in a sane system
     }
     *ip = host;
   }
   ::freeaddrinfo(rp);
   return !ip->empty();
 }
+
+// TODO(bassosimone): in general, when dealing with OONI backends, we SHOULD
+// make sure that we remove the final slash from the base URL, if any.
 
 bool Runner::open_report(const std::string &collector_base_url,
                          const NettestContext &context,
@@ -1072,6 +1125,7 @@ bool Runner::open_report(const std::string &collector_base_url,
     doc["test_version"] = nettest_.version();
     requestbody = doc.dump();
   } catch (const std::exception &) {
+    LIBNETTEST2_EMIT_WARNING("open_report: cannot serialize JSON");
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("open_report: JSON request: " << requestbody);
@@ -1086,8 +1140,9 @@ bool Runner::open_report(const std::string &collector_base_url,
   LIBNETTEST2_EMIT_DEBUG("open_report: JSON reply: " << responsebody);
   try {
     auto doc = nlohmann::json::parse(responsebody);
-    *report_id = doc["report_id"];
-  } catch (const std::exception &) {
+    *report_id = doc.at("report_id");
+  } catch (const std::exception &exc) {
+    LIBNETTEST2_EMIT_WARNING("open_report: can't parse reply: " << exc.what());
     return false;
   }
   return true;
@@ -1126,8 +1181,10 @@ bool Runner::close_report(const std::string &collector_base_url,
 // MaxMindDB code
 // ``````````````
 
-bool Runner::lookup_asn(const std::string &dbpath, const std::string &probe_ip,
-                        std::string *asn, std::string *probe_network_name) noexcept {
+bool Runner::lookup_asn(const std::string &dbpath,
+                        const std::string &probe_ip,
+                        std::string *asn,
+                        std::string *probe_network_name) noexcept {
   if (asn == nullptr || probe_network_name == nullptr) return false;
   asn->clear();
   probe_network_name->clear();
@@ -1152,7 +1209,7 @@ bool Runner::lookup_asn(const std::string &dbpath, const std::string &probe_ip,
       break;
     }
     if (!record.found_entry) {
-      LIBNETTEST2_EMIT_WARNING("lookup_asn: entry not found for: " << probe_ip);
+      LIBNETTEST2_EMIT_WARNING("lookup_asn: no entry for: " << probe_ip);
       break;
     }
     {
@@ -1214,7 +1271,7 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
       break;
     }
     if (!record.found_entry) {
-      LIBNETTEST2_EMIT_WARNING("lookup_cc: entry not found for: " << probe_ip);
+      LIBNETTEST2_EMIT_WARNING("lookup_cc: no entry for: " << probe_ip);
       break;
     }
     {
@@ -1240,7 +1297,11 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
 // cURL code
 // `````````
 
+// TODO(bassosimone): here we should add support for counting the amount
+// of bytes consumed by communicating with the OONI backend
+
 void Runner::CurlDeleter::operator()(CURL *handle) noexcept {
+  // TODO(bassosimone): check whether curl_easy_cleanup() takes a NULL input
   if (handle != nullptr) {
     curl_easy_cleanup(handle);
   }
@@ -1256,6 +1317,7 @@ class CurlSlist {
   CurlSlist(CurlSlist &&) noexcept = delete;
   CurlSlist &operator=(CurlSlist &&) noexcept = delete;
 
+  // TODO(bassosimone): see whether the check for NULL is required
   ~CurlSlist() noexcept { if (slist != nullptr) curl_slist_free_all(slist); }
 };
 
@@ -1274,6 +1336,9 @@ bool Runner::curlx_post_json(std::string url,
     return false;
   }
   CurlSlist headers;
+  // TODO(bassosimone): here we should implement support for Tor and for
+  // cloudfronted. Code doing that was implemented by @hellais into the
+  // measurement-kit/web-api-client repository.
   if (!requestbody.empty()) {
     {
       if ((headers.slist = curl_slist_append(
@@ -1335,7 +1400,8 @@ static size_t curl_stringstream_callback(
   auto ss = static_cast<std::stringstream *>(userdata);
   (*ss) << std::string{ptr, realsiz};
   // From fwrite(3): "[the return value] equals the number of bytes
-  // written _only_ when `size` equals `1`".
+  // written _only_ when `size` equals `1`". See also
+  // https://sourceware.org/git/?p=glibc.git;a=blob;f=libio/iofwrite.c;h=800341b7da546e5b7fd2005c5536f4c90037f50d;hb=HEAD#l29
   return nmemb;
 }
 
@@ -1348,6 +1414,7 @@ bool Runner::curlx_common(UniqueCurl &handle, std::string url, long timeout,
   if (responsebody == nullptr) {
     return false;
   }
+  *responsebody = "";
   if (::curl_easy_setopt(handle.get(), CURLOPT_URL, url.data()) != CURLE_OK) {
     LIBNETTEST2_EMIT_WARNING(
         "curlx_common: curl_easy_setopt(CURLOPT_URL) failed");
