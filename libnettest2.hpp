@@ -44,7 +44,7 @@ namespace measurement_kit {
 namespace libnettest2 {
 
 constexpr const char *default_engine_name() noexcept {
-  return "measurement_kit";
+  return "libnettest2";
 }
 
 // Versioning
@@ -92,6 +92,8 @@ class Settings {
   std::map<std::string, std::string> annotations;
   std::string bouncer_base_url = "https://bouncer.ooni.io";
   std::string collector_base_url;
+  std::string engine_name = default_engine_name();
+  std::string engine_version = version();
   std::string geoip_asn_path;
   std::string geoip_country_path;
   std::vector<std::string> inputs;
@@ -687,11 +689,9 @@ bool Runner::run_with_index32(
   emit_ev("status.measurement_start", {{"idx", i}, {"input", inputs[i]}});
   nlohmann::json measurement;
   measurement["annotations"] = settings_.annotations;
-  // TODO(bassosimone): it should actually be better to allow the core of
-  // MK to override the following three values:
-  measurement["annotations"]["engine_name"] = default_engine_name();
-  measurement["annotations"]["engine_version"] = version();
-  measurement["annotations"]["engine_version_full"] = version();
+  measurement["annotations"]["engine_name"] = settings_.engine_name;
+  measurement["annotations"]["engine_version"] = settings_.engine_version;
+  measurement["annotations"]["engine_version_full"] = settings_.engine_version;
   measurement["annotations"]["platform"] = LIBNETTEST2_PLATFORM;
   measurement["annotations"]["probe_network_name"] =
       settings_.save_real_probe_asn
