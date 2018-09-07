@@ -669,8 +669,14 @@ bool Runner::run() noexcept {
           event.failure = "generic_error";
           on_failure_report_create(std::move(event));
         }
+      } else {
+        LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
+        {
+          StatusReportCreateEvent event;
+          event.report_id = ctx.report_id;
+          on_status_report_create(std::move(event));
+        }
       }
-      LIBNETTEST2_EMIT_DEBUG("report_id: " << ctx.report_id);
     } else {
       collector_base_url = settings_.collector_base_url;
     }
@@ -680,13 +686,6 @@ bool Runner::run() noexcept {
     event.percentage = 0.4;
     event.message = "open report";
     on_status_progress(std::move(event));
-  }
-  {
-    // TODO(bassosimone): should we emit this event if we do not have a
-    // valid report id?
-    StatusReportCreateEvent event;
-    event.report_id = ctx.report_id;
-    on_status_report_create(std::move(event));
   }
   if (nettest_.needs_input() && settings_.inputs.empty()) {
     LIBNETTEST2_EMIT_WARNING("run: no input provided");
