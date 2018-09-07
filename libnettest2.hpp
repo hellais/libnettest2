@@ -687,11 +687,11 @@ bool Runner::run() noexcept {
     event.message = "open report";
     on_status_progress(std::move(event));
   }
-  if (nettest_.needs_input() && settings_.inputs.empty()) {
-    LIBNETTEST2_EMIT_WARNING("run: no input provided");
-    // TODO(bassosimone): according to the spec we should fail the
-    // test in this case, however falling through isn't that bad
-  } else {
+  do {
+    if (nettest_.needs_input() && settings_.inputs.empty()) {
+      LIBNETTEST2_EMIT_WARNING("run: no input provided");
+      break;
+    }
     std::vector<std::string> inputs;
     if (nettest_.needs_input()) {
       inputs.insert(inputs.end(), settings_.inputs.begin(),
@@ -763,28 +763,28 @@ bool Runner::run() noexcept {
       constexpr auto msec = 250;
       std::this_thread::sleep_for(std::chrono::milliseconds(msec));
     }
-  }
-  {
-    StatusProgressEvent event;
-    event.percentage = 0.9;
-    event.message = "measurement complete";
-    on_status_progress(std::move(event));
-  }
-  if (!settings_.no_collector) {
-    // TODO(bassosimone): we SHOULD NOT close a report that we could not open
-    if (!close_report(collector_base_url, ctx.report_id)) {
-      LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
-      // TODO(bassosimone): emit failure.close
-    } else {
-      // TODO(bassosimone): emit status.close
+    {
+      StatusProgressEvent event;
+      event.percentage = 0.9;
+      event.message = "measurement complete";
+      on_status_progress(std::move(event));
     }
-  }
-  {
-    StatusProgressEvent event;
-    event.percentage = 1.0;
-    event.message = "report close";
-    on_status_progress(std::move(event));
-  }
+    if (!settings_.no_collector) {
+      // TODO(bassosimone): we SHOULD NOT close a report that we could not open
+      if (!close_report(collector_base_url, ctx.report_id)) {
+        LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
+        // TODO(bassosimone): emit failure.close
+      } else {
+        // TODO(bassosimone): emit status.close
+      }
+    }
+    {
+      StatusProgressEvent event;
+      event.percentage = 1.0;
+      event.message = "report close";
+      on_status_progress(std::move(event));
+    }
+  } while (0);
   // TODO(bassosimone): emit status.end
   // TODO(bassosimone): count the number of bytes used by the nettest
   return true;
