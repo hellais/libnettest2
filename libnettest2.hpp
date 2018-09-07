@@ -177,6 +177,11 @@ class FailureASNLookup {
   std::string failure;
 };
 
+class FailureCCLookup {
+ public:
+  std::string failure;
+};
+
 class FailureIPLookup {
  public:
   std::string failure;
@@ -260,6 +265,7 @@ class Runner {
   // Note: not using noexcept here because of SWIG. Again, if we decide to
   // avoid using SWIG, we can then ignore this concern.
   virtual void on_failure_asn_lookup(FailureASNLookup event);
+  virtual void on_failure_cc_lookup(FailureCCLookup event);
   virtual void on_failure_ip_lookup(FailureIPLookup event);
 
   virtual void on_log(LogEvent event) const;
@@ -578,8 +584,13 @@ bool Runner::run() noexcept {
       if (!settings_.no_cc_lookup) {
         if (!lookup_cc(settings_.geoip_country_path, ctx.probe_ip,
                        &ctx.probe_cc)) {
-          // TODO(bassosimone): here we should emit "failure.cc_lookup"
           LIBNETTEST2_EMIT_WARNING("run: lookup_cc() failed");
+          {
+            FailureCCLookup event;
+            // TODO(bassosimone): map the MMDB error.
+            event.failure = "generic_error";
+            on_failure_cc_lookup(std::move(event));
+          }
         }
       }
     } else {
@@ -765,6 +776,10 @@ void Runner::interrupt() noexcept { interrupted_ = true; }
 
 void Runner::on_failure_asn_lookup(FailureASNLookup event) {
   LIBNETTEST2_EMIT_WARNING("failure ASN lookup: " << event.failure);
+}
+
+void Runner::on_failure_cc_lookup(FailureCCLookup event) {
+  LIBNETTEST2_EMIT_WARNING("failure CC lookup: " << event.failure);
 }
 
 void Runner::on_failure_ip_lookup(FailureIPLookup event) {
