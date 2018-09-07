@@ -717,11 +717,11 @@ bool Runner::run() noexcept {
     // Implementation note: here we create a bunch of constant variables for
     // the lambda to access shared stuff in a thread safe way
     constexpr uint8_t default_parallelism = 3;
-    // TODO(bassosimone): maybe do not spawn too many threads if we do not
-    // actually need that because we do not have any input?
-    std::atomic<uint8_t> active{(settings_.parallelism > 0)  //
-                                    ? settings_.parallelism
-                                    : default_parallelism};
+    std::atomic<uint8_t> active{((nettest_.needs_input() == false)  //
+                                     ? (uint8_t)1
+                                     : ((settings_.parallelism > 0)  //
+                                            ? settings_.parallelism
+                                            : default_parallelism))};
     auto begin = std::chrono::steady_clock::now();
     const std::chrono::time_point<std::chrono::steady_clock> &cbegin = begin;
     const std::string &ccollector_base_url = collector_base_url;
