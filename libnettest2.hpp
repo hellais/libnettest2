@@ -434,9 +434,16 @@ Runner::Runner(const Settings &settings, Nettest &nettest) noexcept
 
 Runner::~Runner() noexcept {}
 
+static std::mutex &global_mutex() noexcept {
+  static std::mutex mtx;
+  return mtx;
+}
+
 bool Runner::run() noexcept {
-  // TODO(bassosimone): we have removed the part where we prevent
-  // multiple nettests from running concurrently, is that OK?
+  emit_ev("status.queued", nlohmann::json::object());
+  // The following guarantees that just a single test may be active at any
+  // given time. Note that we cannot guarantee FIFO queuing.
+  std::unique_lock<std::mutex> _{global_mutex()};
   NettestContext ctx;
   emit_ev("status.started", nlohmann::json::object());
   {
