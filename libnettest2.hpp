@@ -606,7 +606,11 @@ bool Runner::run() noexcept {
         &mutex                 // thread safe
       ]() noexcept {
         // TODO(bassosimone): more work is required to actually interrupt
-        // "long" tests like NDT that take several seconds to complete
+        // "long" tests like NDT that take several seconds to complete. This
+        // is actually broken also in Measurement Kit, where we cannot stop
+        // the reactor easily because of the thread pool. So, it does not
+        // matter much that we're shipping this sub-library with the interrupt
+        // nettest functionality that is not fully functional.
         while (!cthis->interrupted_) {
           uint32_t idx = 0;
           {
