@@ -214,12 +214,25 @@ class Runner {
  public:
   virtual void emit_ev(std::string key, nlohmann::json value) const noexcept;
 
+  class CurlxInfo {
+   public:
+    std::atomic<uint64_t> data_in{0};
+    std::atomic<uint64_t> data_out{0};
+  };
+
+  class CurlxInfoWrapper {
+   public:
+    const Runner *owner = nullptr;
+    CurlxInfo *info = nullptr;
+  };
+
  protected:
   virtual bool run_with_index32(
       const std::chrono::time_point<std::chrono::steady_clock> &begin,
       const std::string &test_start_time,
       const std::vector<std::string> &inputs, const NettestContext &ctx,
-      const std::string &collector_base_url, uint32_t i) const noexcept;
+      const std::string &collector_base_url, uint32_t i,
+      CurlxInfo *info) const noexcept;
 
   virtual bool query_bouncer(std::string nettest_name,
                              std::vector<std::string> nettest_helper_names,
@@ -228,21 +241,24 @@ class Runner {
                              std::map<std::string,
                                std::vector<EndpointInfo>> *helpers) noexcept;
 
-  virtual bool lookup_ip(std::string *ip) noexcept;
+  virtual bool lookup_ip(std::string *ip, CurlxInfo *info) noexcept;
 
   virtual bool lookup_resolver_ip(std::string *ip) noexcept;
 
   virtual bool open_report(const std::string &collector_base_url,
                            const std::string &test_start_time,
                            const NettestContext &context,
-                           std::string *report_id) noexcept;
+                           std::string *report_id,
+                           CurlxInfo *info) noexcept;
 
   virtual bool submit_report(const std::string &collector_base_url,
                              const std::string &report_id,
-                             const std::string &json_str) const noexcept;
+                             const std::string &json_str,
+                             CurlxInfo *info) const noexcept;
 
   virtual bool close_report(const std::string &collector_base_url,
-                            const std::string &report_id) noexcept;
+                            const std::string &report_id,
+                            CurlxInfo *info) noexcept;
 
   // MaxMindDB code
   // ``````````````
@@ -262,20 +278,6 @@ class Runner {
   };
   using UniqueCurlx = std::unique_ptr<CURL, CurlxDeleter>;
 
- public:
-  class CurlxInfo {
-   public:
-    uint64_t data_in = 0;
-    uint64_t data_out = 0;
-  };
-
-  class CurlxInfoWrapper {
-   public:
-    const Runner *owner = nullptr;
-    CurlxInfo *info = nullptr;
-  };
-
- protected:
   virtual bool curlx_post_json(std::string url,
                                std::string requestbody,
                                long timeout,
@@ -512,6 +514,7 @@ static std::string format_system_clock_now() noexcept {
 }
 
 bool Runner::run() noexcept {
+  CurlxInfo info{};
   emit_ev("status.queued", nlohmann::json::object());
   // The following guarantees that just a single test may be active at any
   // given time. Note that we cannot guarantee FIFO queuing.
@@ -533,7 +536,7 @@ bool Runner::run() noexcept {
   {
     if (settings_.probe_ip == "") {
       if (!settings_.no_ip_lookup) {
-        if (!lookup_ip(&ctx.probe_ip)) {
+        if (!lookup_ip(&ctx.probe_ip, &info)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_ip() failed");
           // TODO(bassosimone): map cURL error.
           emit_ev("failure.ip_lookup", {{"failure", "generic_error"}});
@@ -612,8 +615,8 @@ bool Runner::run() noexcept {
           break;
         }
       }
-      if (!open_report(
-            collector_base_url, test_start_time, ctx, &ctx.report_id)) {
+      if (!open_report(collector_base_url, test_start_time, ctx,
+                       &ctx.report_id, &info)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
         // TODO(bassosimone): map cURL error.
         emit_ev("failure.report_create", {{"failure", "generic_error"}});
@@ -667,6 +670,7 @@ bool Runner::run() noexcept {
     std::atomic<uint64_t> i{0};
     std::mutex mutex;
     const std::string &ctest_start_time = test_start_time;
+    auto pinfo = &info;
     for (uint8_t j = 0; j < active; ++j) {
       // Implementation note: make sure this lambda has only access to either
       // constant stuff or to stuff that it's thread safe.
@@ -675,11 +679,12 @@ bool Runner::run() noexcept {
         &cbegin,               // const ref
         &ccollector_base_url,  // const ref
         &cctx,                 // const ref
-        &cinputs,              // const ref,
-        &cthis,                // const pointer,
+        &cinputs,              // const ref
+        &ctest_start_time,     // const ref
+        &cthis,                // const pointer
         &i,                    // atomic
         &mutex,                // thread safe
-        &ctest_start_time      // const ref
+        pinfo                  // ptr to struct w/ only atomic fields
       ]() noexcept {
         // TODO(bassosimone): more work is required to actually interrupt
         // "long" tests like NDT that take several seconds to complete. This
@@ -701,7 +706,7 @@ bool Runner::run() noexcept {
             i += 1;
           }
           if (!cthis->run_with_index32(cbegin, ctest_start_time, cinputs, cctx,
-                                       ccollector_base_url, idx)) {
+                                       ccollector_base_url, idx, pinfo)) {
             break;
           }
         }
@@ -720,7 +725,7 @@ bool Runner::run() noexcept {
     // some reason earlier. In such case, it does not make any sense to attempt
     // to close a report. It will only create noise in the backend logs.
     if (!settings_.no_collector && !ctx.report_id.empty()) {
-      if (!close_report(collector_base_url, ctx.report_id)) {
+      if (!close_report(collector_base_url, ctx.report_id, &info)) {
         LIBNETTEST2_EMIT_WARNING("run: close_report() failed");
         // TODO(bassosimone): map cURL error
         emit_ev("failure.report_close", {{"failure", "generic_error"}});
@@ -731,13 +736,13 @@ bool Runner::run() noexcept {
     emit_ev("status.progress", {{"percentage", 1.0},
                                 {"message", "report close"}});
   } while (0);
-  // TODO(bassosimone): count the number of bytes used by the nettest
+  // TODO(bassosimone): account for getaddrinfo() consumed bytes
   // TODO(bassosimone): decide whether it makes sense to have an overall
   // error code in this context (it seems not so easy).
   emit_ev("status.end", {//
                          {"failure", ""},
-                         {"downloaded_kb", 0},
-                         {"uploaded_kb", 0}});
+                         {"downloaded_kb", info.data_in.load()},
+                         {"uploaded_kb", info.data_out.load()}});
   return true;
 }
 
@@ -764,7 +769,9 @@ bool Runner::run_with_index32(
     const std::chrono::time_point<std::chrono::steady_clock> &begin,
     const std::string &test_start_time,
     const std::vector<std::string> &inputs, const NettestContext &ctx,
-    const std::string &collector_base_url, uint32_t i) const noexcept {
+    const std::string &collector_base_url, uint32_t i,
+    Runner::CurlxInfo *info) const noexcept {
+  if (info == nullptr) return false;
   {
     auto current_time = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = current_time - begin;
@@ -856,7 +863,7 @@ bool Runner::run_with_index32(
     // it means we could not open it for some reason. An empty str instead
     // indicates a bug where we could not serialize a JSON.
     if (!settings_.no_collector && !ctx.report_id.empty() && !str.empty()) {
-      if (!submit_report(collector_base_url, ctx.report_id, str)) {
+      if (!submit_report(collector_base_url, ctx.report_id, str, info)) {
         LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
         // TODO(bassosimone): emit cURL error that occurred
         emit_ev("failure.measurement_submission", {
@@ -1023,16 +1030,15 @@ static bool xml_extract(std::string input, std::string open_tag,
   return true;
 }
 
-bool Runner::lookup_ip(std::string *ip) noexcept {
-  if (ip == nullptr) return false;
+bool Runner::lookup_ip(std::string *ip, Runner::CurlxInfo *info) noexcept {
+  if (ip == nullptr || info == nullptr) return false;
   ip->clear();
   std::string responsebody;
   // TODO(bassosimone): as discussed several time with @hellais, here we
   // should use other services for getting the probe's IP address.
   std::string url = "https://geoip.ubuntu.com/lookup";
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: URL: " << url);
-  CurlxInfo info{};
-  if (!curlx_get(std::move(url), curl_timeout, &responsebody, &info)) {
+  if (!curlx_get(std::move(url), curl_timeout, &responsebody, info)) {
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: response: " << responsebody);
@@ -1073,8 +1079,9 @@ bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
 bool Runner::open_report(const std::string &collector_base_url,
                          const std::string &test_start_time,
                          const NettestContext &context,
-                         std::string *report_id) noexcept {
-  if (report_id == nullptr) return false;
+                         std::string *report_id,
+                         Runner::CurlxInfo *info) noexcept {
+  if (report_id == nullptr || info == nullptr) return false;
   report_id->clear();
   std::string requestbody;
   try {
@@ -1099,9 +1106,8 @@ bool Runner::open_report(const std::string &collector_base_url,
   std::string url = without_final_slash(collector_base_url);
   url += "/report";
   LIBNETTEST2_EMIT_DEBUG("open_report: URL: " << url);
-  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
-                       &responsebody, &info)) {
+                       &responsebody, info)) {
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("open_report: JSON reply: " << responsebody);
@@ -1117,16 +1123,17 @@ bool Runner::open_report(const std::string &collector_base_url,
 
 bool Runner::submit_report(const std::string &collector_base_url,
                            const std::string &report_id,
-                           const std::string &requestbody) const noexcept {
+                           const std::string &requestbody,
+                           Runner::CurlxInfo *info) const noexcept {
+  if (info == nullptr) return false;
   LIBNETTEST2_EMIT_DEBUG("submit_report: JSON request: " << requestbody);
   std::string responsebody;
   std::string url = without_final_slash(collector_base_url);
   url += "/report/";
   url += report_id;
   LIBNETTEST2_EMIT_DEBUG("submit_report: URL: " << url);
-  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
-                       &responsebody, &info)) {
+                       &responsebody, info)) {
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("submit_report: JSON reply: " << responsebody);
@@ -1134,14 +1141,15 @@ bool Runner::submit_report(const std::string &collector_base_url,
 }
 
 bool Runner::close_report(const std::string &collector_base_url,
-                          const std::string &report_id) noexcept {
+                          const std::string &report_id,
+                          Runner::CurlxInfo *info) noexcept {
+  if (info == nullptr) return false;
   std::string responsebody;
   std::string url = without_final_slash(collector_base_url);
   url += "/report/" + report_id + "/close";
   LIBNETTEST2_EMIT_DEBUG("close_report: URL: " << url);
-  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), "", curl_timeout,
-                       &responsebody, &info)) {
+                       &responsebody, info)) {
     return false;
   }
   LIBNETTEST2_EMIT_DEBUG("close_report: response body: " << responsebody);
