@@ -37,6 +37,8 @@
 // Check dependencies
 // ``````````````````
 
+// TODO(bassosimone): make sure we can serialize a JSON
+
 #ifndef NLOHMANN_JSON_VERSION_MAJOR
 #error "Please include nlohmann/json before including this header"
 #endif  // !NLOHMANN_JSON_VERSION_MAJOR
