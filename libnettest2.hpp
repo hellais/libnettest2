@@ -214,16 +214,16 @@ class Runner {
  public:
   virtual void emit_ev(std::string key, nlohmann::json value) const noexcept;
 
-  class CurlxInfo {
+  class BytesInfo {
    public:
     std::atomic<uint64_t> data_in{0};
     std::atomic<uint64_t> data_out{0};
   };
 
-  class CurlxInfoWrapper {
+  class BytesInfoWrapper {
    public:
     const Runner *owner = nullptr;
-    CurlxInfo *info = nullptr;
+    BytesInfo *info = nullptr;
   };
 
  protected:
@@ -232,7 +232,7 @@ class Runner {
       const std::string &test_start_time,
       const std::vector<std::string> &inputs, const NettestContext &ctx,
       const std::string &collector_base_url, uint32_t i,
-      CurlxInfo *info) const noexcept;
+      BytesInfo *info) const noexcept;
 
   virtual bool query_bouncer(std::string nettest_name,
                              std::vector<std::string> nettest_helper_names,
@@ -241,24 +241,24 @@ class Runner {
                              std::map<std::string,
                                std::vector<EndpointInfo>> *helpers) noexcept;
 
-  virtual bool lookup_ip(std::string *ip, CurlxInfo *info) noexcept;
+  virtual bool lookup_ip(std::string *ip, BytesInfo *info) noexcept;
 
-  virtual bool lookup_resolver_ip(std::string *ip) noexcept;
+  virtual bool lookup_resolver_ip(std::string *ip, BytesInfo *info) noexcept;
 
   virtual bool open_report(const std::string &collector_base_url,
                            const std::string &test_start_time,
                            const NettestContext &context,
                            std::string *report_id,
-                           CurlxInfo *info) noexcept;
+                           BytesInfo *info) noexcept;
 
   virtual bool submit_report(const std::string &collector_base_url,
                              const std::string &report_id,
                              const std::string &json_str,
-                             CurlxInfo *info) const noexcept;
+                             BytesInfo *info) const noexcept;
 
   virtual bool close_report(const std::string &collector_base_url,
                             const std::string &report_id,
-                            CurlxInfo *info) noexcept;
+                            BytesInfo *info) noexcept;
 
   // MaxMindDB code
   // ``````````````
@@ -282,18 +282,18 @@ class Runner {
                                std::string requestbody,
                                long timeout,
                                std::string *responsebody,
-                               CurlxInfo *info) const noexcept;
+                               BytesInfo *info) const noexcept;
 
   virtual bool curlx_get(std::string url,
                          long timeout,
                          std::string *responsebody,
-                         CurlxInfo *info) noexcept;
+                         BytesInfo *info) noexcept;
 
   virtual bool curlx_common(UniqueCurlx &handle,
                             std::string url,
                             long timeout,
                             std::string *responsebody,
-                            CurlxInfo *info) const noexcept;
+                            BytesInfo *info) const noexcept;
 
  private:
   // Private attributes
@@ -514,7 +514,7 @@ static std::string format_system_clock_now() noexcept {
 }
 
 bool Runner::run() noexcept {
-  CurlxInfo info{};
+  BytesInfo info{};
   emit_ev("status.queued", nlohmann::json::object());
   // The following guarantees that just a single test may be active at any
   // given time. Note that we cannot guarantee FIFO queuing.
@@ -591,7 +591,7 @@ bool Runner::run() noexcept {
                                  });
   {
     if (!settings_.no_resolver_lookup) {
-      if (!lookup_resolver_ip(&ctx.resolver_ip)) {
+      if (!lookup_resolver_ip(&ctx.resolver_ip, &info)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
         // TODO(bassosimone): map getaddrinfo error.
         emit_ev("failure.resolver_lookup", {{"failure", "generic_error"}});
@@ -736,11 +736,9 @@ bool Runner::run() noexcept {
     emit_ev("status.progress", {{"percentage", 1.0},
                                 {"message", "report close"}});
   } while (0);
-  // TODO(bassosimone): account for getaddrinfo() consumed bytes
   // TODO(bassosimone): decide whether it makes sense to have an overall
   // error code in this context (it seems not so easy).
-  emit_ev("status.end", {//
-                         {"failure", ""},
+  emit_ev("status.end", {{"failure", ""},
                          {"downloaded_kb", info.data_in.load()},
                          {"uploaded_kb", info.data_out.load()}});
   return true;
@@ -770,7 +768,7 @@ bool Runner::run_with_index32(
     const std::string &test_start_time,
     const std::vector<std::string> &inputs, const NettestContext &ctx,
     const std::string &collector_base_url, uint32_t i,
-    Runner::CurlxInfo *info) const noexcept {
+    Runner::BytesInfo *info) const noexcept {
   if (info == nullptr) return false;
   {
     auto current_time = std::chrono::steady_clock::now();
@@ -935,7 +933,7 @@ bool Runner::query_bouncer(std::string nettest_name,
   std::string url = without_final_slash(settings_.bouncer_base_url);
   url += "/bouncer/net-tests";
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: URL: " << url);
-  CurlxInfo info{};
+  BytesInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
                        &responsebody, &info)) {
     return false;
@@ -1030,7 +1028,7 @@ static bool xml_extract(std::string input, std::string open_tag,
   return true;
 }
 
-bool Runner::lookup_ip(std::string *ip, Runner::CurlxInfo *info) noexcept {
+bool Runner::lookup_ip(std::string *ip, Runner::BytesInfo *info) noexcept {
   if (ip == nullptr || info == nullptr) return false;
   ip->clear();
   std::string responsebody;
@@ -1045,19 +1043,29 @@ bool Runner::lookup_ip(std::string *ip, Runner::CurlxInfo *info) noexcept {
   return xml_extract(responsebody, "<Ip>", "</Ip>", ip);
 }
 
-bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
-  if (ip == nullptr) return false;
+bool Runner::lookup_resolver_ip(
+    std::string *ip, Runner::BytesInfo *info) noexcept {
+  if (ip == nullptr || info == nullptr) return false;
   ip->clear();
   // TODO(bassosimone): so, here we use getaddrinfo() because we want to know
   // what resolver has the user configured by default. However, the nettest
   // MAY use another resolver. It's important to decide whether this would be
   // a problem or not. There is also a _third_ case, i.e. the Vodafone-like
   // case where there is a transparent DNS proxy.
+  //
+  // TODO(bassosimone): currently we're using A only because we're doing what
+  // MK does but we should consider doing a AAAA query as well.
   addrinfo hints{};
   hints.ai_family = AF_INET;
   hints.ai_flags |= AI_NUMERICSERV;
   hints.ai_socktype = SOCK_STREAM;
   addrinfo *rp = nullptr;
+  {
+    // Upper bound estimate: assume that the AF_INET query takes a maximum
+    // size IP datagram (i.e. 512 bytes according to <arpa/nameser.h>)
+    info->data_out += 512;
+    info->data_in += 512;
+  }
   auto rv = ::getaddrinfo("whoami.akamai.net", "443", &hints, &rp);
   if (rv != 0) {
     LIBNETTEST2_EMIT_WARNING("lookup_resolver_ip: " << gai_strerror(rv));
@@ -1066,7 +1074,7 @@ bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
   for (auto ai = rp; ai != nullptr && ip->empty(); ai = ai->ai_next) {
     char host[NI_MAXHOST];
     if (::getnameinfo(ai->ai_addr, ai->ai_addrlen, host, NI_MAXHOST, nullptr,
-        0, NI_NUMERICHOST) != 0) {
+                      0, NI_NUMERICHOST) != 0) {
       LIBNETTEST2_EMIT_WARNING("lookup_resolver_ip: getnameinfo() failed");
       break;  // This should not happen in a sane system
     }
@@ -1080,7 +1088,7 @@ bool Runner::open_report(const std::string &collector_base_url,
                          const std::string &test_start_time,
                          const NettestContext &context,
                          std::string *report_id,
-                         Runner::CurlxInfo *info) noexcept {
+                         Runner::BytesInfo *info) noexcept {
   if (report_id == nullptr || info == nullptr) return false;
   report_id->clear();
   std::string requestbody;
@@ -1124,7 +1132,7 @@ bool Runner::open_report(const std::string &collector_base_url,
 bool Runner::submit_report(const std::string &collector_base_url,
                            const std::string &report_id,
                            const std::string &requestbody,
-                           Runner::CurlxInfo *info) const noexcept {
+                           Runner::BytesInfo *info) const noexcept {
   if (info == nullptr) return false;
   LIBNETTEST2_EMIT_DEBUG("submit_report: JSON request: " << requestbody);
   std::string responsebody;
@@ -1142,7 +1150,7 @@ bool Runner::submit_report(const std::string &collector_base_url,
 
 bool Runner::close_report(const std::string &collector_base_url,
                           const std::string &report_id,
-                          Runner::CurlxInfo *info) noexcept {
+                          Runner::BytesInfo *info) noexcept {
   if (info == nullptr) return false;
   std::string responsebody;
   std::string url = without_final_slash(collector_base_url);
@@ -1300,7 +1308,7 @@ bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
                              long timeout,
                              std::string *responsebody,
-                             Runner::CurlxInfo *info) const noexcept {
+                             Runner::BytesInfo *info) const noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
@@ -1347,7 +1355,7 @@ bool Runner::curlx_post_json(std::string url,
 bool Runner::curlx_get(std::string url,
                        long timeout,
                        std::string *responsebody,
-                       Runner::CurlxInfo *info) noexcept {
+                       Runner::BytesInfo *info) noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
@@ -1390,7 +1398,7 @@ static int libnettest2_curl_debugfn(CURL *handle,
                                     void *userptr) {
   (void)handle;
   using namespace measurement_kit::libnettest2;
-  auto wrapper = static_cast<Runner::CurlxInfoWrapper *>(userptr);
+  auto wrapper = static_cast<Runner::BytesInfoWrapper *>(userptr);
   auto info = wrapper->info;
   auto owner = wrapper->owner;
   // Emit debug messages if the log level allows that
@@ -1481,7 +1489,7 @@ bool Runner::curlx_common(UniqueCurlx &handle,
                           std::string url,
                           long timeout,
                           std::string *responsebody,
-                          Runner::CurlxInfo *info) const noexcept {
+                          Runner::BytesInfo *info) const noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
@@ -1514,7 +1522,7 @@ bool Runner::curlx_common(UniqueCurlx &handle,
         "curlx_common: curl_easy_setopt(CURLOPT_DEBUGFUNCTION) failed");
     return false;
   }
-  CurlxInfoWrapper w;
+  BytesInfoWrapper w;
   w.owner = this;
   w.info = info;
   if (::curl_easy_setopt(handle.get(), CURLOPT_DEBUGDATA, &w) != CURLE_OK) {
