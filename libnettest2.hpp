@@ -737,7 +737,7 @@ bool Runner::run() noexcept {
                                 {"message", "report close"}});
   } while (0);
   // TODO(bassosimone): decide whether it makes sense to have an overall
-  // error code in this context (it seems not so easy).
+  // precise error code in this context (it seems not so easy).
   emit_ev("status.end", {{"failure", ""},
                          {"downloaded_kb", info.data_in.load()},
                          {"uploaded_kb", info.data_out.load()}});
