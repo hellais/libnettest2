@@ -256,23 +256,23 @@ class Runner {
   // cURL code
   // `````````
 
-  class CurlDeleter {
+  class CurlxDeleter {
    public:
     void operator()(CURL *handle) noexcept;
   };
-  using UniqueCurl = std::unique_ptr<CURL, CurlDeleter>;
+  using UniqueCurlx = std::unique_ptr<CURL, CurlxDeleter>;
 
  public:
-  class CurlInfo {
+  class CurlxInfo {
    public:
     uint64_t data_in = 0;
     uint64_t data_out = 0;
   };
 
-  class CurlInfoWrapper {
+  class CurlxInfoWrapper {
    public:
     const Runner *owner = nullptr;
-    CurlInfo *info = nullptr;
+    CurlxInfo *info = nullptr;
   };
 
  protected:
@@ -280,18 +280,18 @@ class Runner {
                                std::string requestbody,
                                long timeout,
                                std::string *responsebody,
-                               CurlInfo *info) const noexcept;
+                               CurlxInfo *info) const noexcept;
 
   virtual bool curlx_get(std::string url,
                          long timeout,
                          std::string *responsebody,
-                         CurlInfo *info) noexcept;
+                         CurlxInfo *info) noexcept;
 
-  virtual bool curlx_common(UniqueCurl &handle,
+  virtual bool curlx_common(UniqueCurlx &handle,
                             std::string url,
                             long timeout,
                             std::string *responsebody,
-                            CurlInfo *info) const noexcept;
+                            CurlxInfo *info) const noexcept;
 
  private:
   // Private attributes
@@ -928,7 +928,7 @@ bool Runner::query_bouncer(std::string nettest_name,
   std::string url = without_final_slash(settings_.bouncer_base_url);
   url += "/bouncer/net-tests";
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: URL: " << url);
-  CurlInfo info{};
+  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
                        &responsebody, &info)) {
     return false;
@@ -1031,7 +1031,7 @@ bool Runner::lookup_ip(std::string *ip) noexcept {
   // should use other services for getting the probe's IP address.
   std::string url = "https://geoip.ubuntu.com/lookup";
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: URL: " << url);
-  CurlInfo info{};
+  CurlxInfo info{};
   if (!curlx_get(std::move(url), curl_timeout, &responsebody, &info)) {
     return false;
   }
@@ -1099,7 +1099,7 @@ bool Runner::open_report(const std::string &collector_base_url,
   std::string url = without_final_slash(collector_base_url);
   url += "/report";
   LIBNETTEST2_EMIT_DEBUG("open_report: URL: " << url);
-  CurlInfo info{};
+  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
                        &responsebody, &info)) {
     return false;
@@ -1124,7 +1124,7 @@ bool Runner::submit_report(const std::string &collector_base_url,
   url += "/report/";
   url += report_id;
   LIBNETTEST2_EMIT_DEBUG("submit_report: URL: " << url);
-  CurlInfo info{};
+  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
                        &responsebody, &info)) {
     return false;
@@ -1139,7 +1139,7 @@ bool Runner::close_report(const std::string &collector_base_url,
   std::string url = without_final_slash(collector_base_url);
   url += "/report/" + report_id + "/close";
   LIBNETTEST2_EMIT_DEBUG("close_report: URL: " << url);
-  CurlInfo info{};
+  CurlxInfo info{};
   if (!curlx_post_json(std::move(url), "", curl_timeout,
                        &responsebody, &info)) {
     return false;
@@ -1267,24 +1267,24 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
 // cURL code
 // `````````
 
-void Runner::CurlDeleter::operator()(CURL *handle) noexcept {
+void Runner::CurlxDeleter::operator()(CURL *handle) noexcept {
   curl_easy_cleanup(handle);  // handless null gracefully
 }
 
-class CurlSlist {
+class CurlxSlist {
  public:
   curl_slist *slist = nullptr;
 
-  CurlSlist() noexcept = default;
-  CurlSlist(const CurlSlist &) noexcept = delete;
-  CurlSlist &operator=(const CurlSlist &) noexcept = delete;
-  CurlSlist(CurlSlist &&) noexcept = delete;
-  CurlSlist &operator=(CurlSlist &&) noexcept = delete;
+  CurlxSlist() noexcept = default;
+  CurlxSlist(const CurlxSlist &) noexcept = delete;
+  CurlxSlist &operator=(const CurlxSlist &) noexcept = delete;
+  CurlxSlist(CurlxSlist &&) noexcept = delete;
+  CurlxSlist &operator=(CurlxSlist &&) noexcept = delete;
 
-  ~CurlSlist() noexcept;
+  ~CurlxSlist() noexcept;
 };
 
-CurlSlist::~CurlSlist() noexcept {
+CurlxSlist::~CurlxSlist() noexcept {
   curl_slist_free_all(slist);  // handles nullptr gracefully
 }
 
@@ -1292,18 +1292,18 @@ bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
                              long timeout,
                              std::string *responsebody,
-                             Runner::CurlInfo *info) const noexcept {
+                             Runner::CurlxInfo *info) const noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
   *responsebody = "";
-  UniqueCurl handle;
+  UniqueCurlx handle;
   handle.reset(::curl_easy_init());
   if (!handle) {
     LIBNETTEST2_EMIT_WARNING("curlx_post_json: curl_easy_init() failed");
     return false;
   }
-  CurlSlist headers;
+  CurlxSlist headers;
   // TODO(bassosimone): here we should implement support for Tor and for
   // cloudfronted. Code doing that was implemented by @hellais into the
   // measurement-kit/web-api-client repository.
@@ -1339,12 +1339,12 @@ bool Runner::curlx_post_json(std::string url,
 bool Runner::curlx_get(std::string url,
                        long timeout,
                        std::string *responsebody,
-                       Runner::CurlInfo *info) noexcept {
+                       Runner::CurlxInfo *info) noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
   *responsebody = "";
-  UniqueCurl handle;
+  UniqueCurlx handle;
   handle.reset(::curl_easy_init());
   if (!handle) {
     LIBNETTEST2_EMIT_WARNING("curlx_get: curl_easy_init() failed");
@@ -1382,7 +1382,7 @@ static int libnettest2_curl_debugfn(CURL *handle,
                                     void *userptr) {
   (void)handle;
   using namespace measurement_kit::libnettest2;
-  auto wrapper = static_cast<Runner::CurlInfoWrapper *>(userptr);
+  auto wrapper = static_cast<Runner::CurlxInfoWrapper *>(userptr);
   auto info = wrapper->info;
   auto owner = wrapper->owner;
   // Emit debug messages if the log level allows that
@@ -1469,11 +1469,11 @@ static int libnettest2_curl_debugfn(CURL *handle,
 namespace measurement_kit {
 namespace libnettest2 {
 
-bool Runner::curlx_common(UniqueCurl &handle,
+bool Runner::curlx_common(UniqueCurlx &handle,
                           std::string url,
                           long timeout,
                           std::string *responsebody,
-                          Runner::CurlInfo *info) const noexcept {
+                          Runner::CurlxInfo *info) const noexcept {
   if (responsebody == nullptr || info == nullptr) {
     return false;
   }
@@ -1506,7 +1506,7 @@ bool Runner::curlx_common(UniqueCurl &handle,
         "curlx_common: curl_easy_setopt(CURLOPT_DEBUGFUNCTION) failed");
     return false;
   }
-  CurlInfoWrapper w;
+  CurlxInfoWrapper w;
   w.owner = this;
   w.info = info;
   if (::curl_easy_setopt(handle.get(), CURLOPT_DEBUGDATA, &w) != CURLE_OK) {
