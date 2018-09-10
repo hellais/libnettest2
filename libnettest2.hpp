@@ -1226,10 +1226,7 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
 // `````````
 
 void Runner::CurlDeleter::operator()(CURL *handle) noexcept {
-  // TODO(bassosimone): check whether curl_easy_cleanup() takes a NULL input
-  if (handle != nullptr) {
-    curl_easy_cleanup(handle);
-  }
+  curl_easy_cleanup(handle);  // handless null gracefully
 }
 
 class CurlSlist {
@@ -1242,9 +1239,12 @@ class CurlSlist {
   CurlSlist(CurlSlist &&) noexcept = delete;
   CurlSlist &operator=(CurlSlist &&) noexcept = delete;
 
-  // TODO(bassosimone): see whether the check for NULL is required
-  ~CurlSlist() noexcept { if (slist != nullptr) curl_slist_free_all(slist); }
+  ~CurlSlist() noexcept;
 };
+
+CurlSlist::~CurlSlist() noexcept {
+  curl_slist_free_all(slist);  // handles nullptr gracefully
+}
 
 bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
