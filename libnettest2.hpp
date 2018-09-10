@@ -979,8 +979,8 @@ bool Runner::lookup_ip(std::string *ip) noexcept {
   if (ip == nullptr) return false;
   ip->clear();
   std::string responsebody;
-  // TODO(bassosimone): as discussed several time with @hellais, here we can
-  // implement other services for getting our own IP address.
+  // TODO(bassosimone): as discussed several time with @hellais, here we
+  // should use other services for getting the probe's IP address.
   std::string url = "https://geoip.ubuntu.com/lookup";
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: URL: " << url);
   CurlInfo info{};
