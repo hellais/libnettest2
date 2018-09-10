@@ -36,12 +36,17 @@
 
 // Check dependencies
 // ``````````````````
+
 #ifndef NLOHMANN_JSON_VERSION_MAJOR
-#error "Libnettest2 depends on nlohmann/json. Include nlohmann/json before including libnettest2."
+#error "Please include nlohmann/json before including this header"
 #endif  // !NLOHMANN_JSON_VERSION_MAJOR
 #if NLOHMANN_JSON_VERSION_MAJOR < 3
 #error "Libnettest2 requires nlohmann/json >= 3"
 #endif
+
+#ifndef DATE_H
+#error "Please include HowardHinnant/date before including this header"
+#endif  // !DATE_H
 
 namespace measurement_kit {
 namespace libnettest2 {
@@ -212,6 +217,7 @@ class Runner {
  protected:
   virtual bool run_with_index32(
       const std::chrono::time_point<std::chrono::steady_clock> &begin,
+      const std::string &test_start_time,
       const std::vector<std::string> &inputs, const NettestContext &ctx,
       const std::string &collector_base_url, uint32_t i) const noexcept;
 
@@ -227,6 +233,7 @@ class Runner {
   virtual bool lookup_resolver_ip(std::string *ip) noexcept;
 
   virtual bool open_report(const std::string &collector_base_url,
+                           const std::string &test_start_time,
                            const NettestContext &context,
                            std::string *report_id) noexcept;
 
@@ -475,6 +482,35 @@ static std::mutex &global_mutex() noexcept {
   return mtx;
 }
 
+static std::string format_system_clock_now() noexcept {
+  // Implementation note: to avoid using the C standard library that has
+  // given us many headaches on Windows because of parameter validation we
+  // go for a fully C++11 solution based on <chrono> and on the C++11
+  // HowardInnant/date library, which will be available as part of the
+  // C++ standard library starting from C++20.
+  //
+  // Explanation of the algorithm:
+  //
+  // 1. get the current system time
+  // 2. round the time point obtained in the previous step to an integral
+  //    number of seconds since the EPOCH used by the system clock
+  // 3. create a system clock time point from the integral number of seconds
+  // 4. convert the previous result to string using HowardInnant/date
+  // 5. if there is a decimal component (there should be one given how the
+  //    library we use works) remove it, because OONI doesn't like it
+  //
+  // (There was another way to deal with fractionary seconds, i.e. using '%OS',
+  //  but this solution seems better to me because it's less obscure.)
+  using namespace std::chrono;
+  constexpr auto fmt = "%Y-%m-%d %H:%M:%S";
+  auto sys_point = system_clock::now();                                    // 1
+  auto as_seconds = duration_cast<seconds>(sys_point.time_since_epoch());  // 2
+  auto back_as_sys_point = system_clock::time_point(as_seconds);           // 3
+  auto s = date::format(fmt, back_as_sys_point);                           // 4
+  if (s.find(".") != std::string::npos) s = s.substr(0, s.find("."));      // 5
+  return s;
+}
+
 bool Runner::run() noexcept {
   emit_ev("status.queued", nlohmann::json::object());
   // The following guarantees that just a single test may be active at any
@@ -563,6 +599,7 @@ bool Runner::run() noexcept {
   emit_ev("status.progress", {{"percentage", 0.3},
                               {"message", "resolver lookup"}});
   emit_ev("status.resolver_lookup", {{"resolver_ip", ctx.resolver_ip}});
+  auto test_start_time = format_system_clock_now();
   std::string collector_base_url;
   if (!settings_.no_collector) {
     if (settings_.collector_base_url == "") {
@@ -575,7 +612,8 @@ bool Runner::run() noexcept {
           break;
         }
       }
-      if (!open_report(collector_base_url, ctx, &ctx.report_id)) {
+      if (!open_report(
+            collector_base_url, test_start_time, ctx, &ctx.report_id)) {
         LIBNETTEST2_EMIT_WARNING("run: open_report() failed");
         // TODO(bassosimone): map cURL error.
         emit_ev("failure.report_create", {{"failure", "generic_error"}});
@@ -628,6 +666,7 @@ bool Runner::run() noexcept {
     const Runner *cthis = this;
     std::atomic<uint64_t> i{0};
     std::mutex mutex;
+    const std::string &ctest_start_time = test_start_time;
     for (uint8_t j = 0; j < active; ++j) {
       // Implementation note: make sure this lambda has only access to either
       // constant stuff or to stuff that it's thread safe.
@@ -639,7 +678,8 @@ bool Runner::run() noexcept {
         &cinputs,              // const ref,
         &cthis,                // const pointer,
         &i,                    // atomic
-        &mutex                 // thread safe
+        &mutex,                // thread safe
+        &ctest_start_time      // const ref
       ]() noexcept {
         // TODO(bassosimone): more work is required to actually interrupt
         // "long" tests like NDT that take several seconds to complete. This
@@ -660,7 +700,7 @@ bool Runner::run() noexcept {
             idx = (uint32_t)i;
             i += 1;
           }
-          if (!cthis->run_with_index32(cbegin, cinputs, cctx,
+          if (!cthis->run_with_index32(cbegin, ctest_start_time, cinputs, cctx,
                                        ccollector_base_url, idx)) {
             break;
           }
@@ -722,6 +762,7 @@ void Runner::emit_ev(std::string key, nlohmann::json value) const noexcept {
 
 bool Runner::run_with_index32(
     const std::chrono::time_point<std::chrono::steady_clock> &begin,
+    const std::string &test_start_time,
     const std::vector<std::string> &inputs, const NettestContext &ctx,
     const std::string &collector_base_url, uint32_t i) const noexcept {
   {
@@ -749,7 +790,7 @@ bool Runner::run_with_index32(
   measurement["id"] = sole::uuid4().str();
   measurement["input"] = inputs[i];
   measurement["input_hashes"] = nlohmann::json::array();
-  measurement["measurement_start_time"] = "XXX";  // TODO(bassosimone)
+  measurement["measurement_start_time"] = format_system_clock_now();
   measurement["options"] = nlohmann::json::array();
   measurement["probe_asn"] = settings_.save_real_probe_asn ? ctx.probe_asn : "";
   measurement["probe_cc"] = settings_.save_real_probe_cc ? ctx.probe_cc : "";
@@ -781,7 +822,7 @@ bool Runner::run_with_index32(
     }
   }
   measurement["test_name"] = nettest_.name();
-  measurement["test_start_time"] = "XXX";  // TODO(bassosimone)
+  measurement["test_start_time"] = test_start_time;
   measurement["test_version"] = nettest_.version();
   nlohmann::json test_keys;
   auto measurement_start = std::chrono::steady_clock::now();
@@ -1030,6 +1071,7 @@ bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
 }
 
 bool Runner::open_report(const std::string &collector_base_url,
+                         const std::string &test_start_time,
                          const NettestContext &context,
                          std::string *report_id) noexcept {
   if (report_id == nullptr) return false;
@@ -1045,7 +1087,7 @@ bool Runner::open_report(const std::string &collector_base_url,
     doc["software_name"] = settings_.software_name;
     doc["software_version"] = settings_.software_version;
     doc["test_name"] = nettest_.name();
-    doc["test_start_time"] = "2018-08-01 17:06:39";  // TODO(bassosimone): fill
+    doc["test_start_time"] = test_start_time,
     doc["test_version"] = nettest_.version();
     requestbody = doc.dump();
   } catch (const std::exception &) {

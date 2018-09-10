@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 
+#include "date.h"
 #include "json.hpp"
 #include "libnettest2.hpp"
 
