@@ -881,7 +881,10 @@ bool Runner::run_with_index32(
                                                 : "";
   if (!rv) {
     // TODO(bassosimone): we should standardize the errors we emit.
-    emit_ev("failure.measurement", {{"failure", "generic_error"}});
+    emit_ev("failure.measurement", {
+        {"failure", "generic_error"},
+        {"idx", i},
+    });
   }
   do {
     std::string str;
