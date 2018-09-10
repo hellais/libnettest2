@@ -894,7 +894,7 @@ bool Runner::query_bouncer(std::string nettest_name,
   }
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: JSON reply: " << responsebody);
   try {
-    // TODO(bassosimone): make processing more flexible and robust. Here we
+    // TODO(bassosimone): make processing more flexible and robust? Here we
     // are making strong assumptions on the returned object type.
     auto doc = nlohmann::json::parse(responsebody);
     for (auto &entry : doc.at("net-tests")) {
