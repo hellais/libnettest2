@@ -841,6 +841,13 @@ bool Runner::run_with_index32(
 // do that MAY be to use the net/timeout setting.
 constexpr long curl_timeout = 5;
 
+static std::string without_final_slash(std::string src) noexcept {
+  while (src.size() > 0 && src[src.size() - 1] == '/') {
+    src = src.substr(0, src.size() - 1);
+  }
+  return src;
+}
+
 bool Runner::query_bouncer(std::string nettest_name,
                            std::vector<std::string> nettest_helper_names,
                            std::string nettest_version,
@@ -877,7 +884,7 @@ bool Runner::query_bouncer(std::string nettest_name,
   std::string responsebody;
   // TODO(bassosimone): we should probably discuss with @hellais whether we
   // like that currently we do not have a cloudfronted bouncer fallback
-  std::string url = settings_.bouncer_base_url;
+  std::string url = without_final_slash(settings_.bouncer_base_url);
   url += "/bouncer/net-tests";
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: URL: " << url);
   CurlInfo info{};
@@ -1022,9 +1029,6 @@ bool Runner::lookup_resolver_ip(std::string *ip) noexcept {
   return !ip->empty();
 }
 
-// TODO(bassosimone): in general, when dealing with OONI backends, we SHOULD
-// make sure that we remove the final slash from the base URL, if any.
-
 bool Runner::open_report(const std::string &collector_base_url,
                          const NettestContext &context,
                          std::string *report_id) noexcept {
@@ -1050,7 +1054,7 @@ bool Runner::open_report(const std::string &collector_base_url,
   }
   LIBNETTEST2_EMIT_DEBUG("open_report: JSON request: " << requestbody);
   std::string responsebody;
-  std::string url = collector_base_url;
+  std::string url = without_final_slash(collector_base_url);
   url += "/report";
   LIBNETTEST2_EMIT_DEBUG("open_report: URL: " << url);
   CurlInfo info{};
@@ -1074,7 +1078,7 @@ bool Runner::submit_report(const std::string &collector_base_url,
                            const std::string &requestbody) const noexcept {
   LIBNETTEST2_EMIT_DEBUG("submit_report: JSON request: " << requestbody);
   std::string responsebody;
-  std::string url = collector_base_url;
+  std::string url = without_final_slash(collector_base_url);
   url += "/report/";
   url += report_id;
   LIBNETTEST2_EMIT_DEBUG("submit_report: URL: " << url);
@@ -1090,7 +1094,7 @@ bool Runner::submit_report(const std::string &collector_base_url,
 bool Runner::close_report(const std::string &collector_base_url,
                           const std::string &report_id) noexcept {
   std::string responsebody;
-  std::string url = collector_base_url;
+  std::string url = without_final_slash(collector_base_url);
   url += "/report/" + report_id + "/close";
   LIBNETTEST2_EMIT_DEBUG("close_report: URL: " << url);
   CurlInfo info{};
