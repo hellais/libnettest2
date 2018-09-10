@@ -784,12 +784,11 @@ bool Runner::run_with_index32(
   measurement["test_start_time"] = "XXX";  // TODO(bassosimone)
   measurement["test_version"] = nettest_.version();
   nlohmann::json test_keys;
+  auto measurement_start = std::chrono::steady_clock::now();
   auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
   {
-    // TODO(bassosimone): This seems to be the elapsed time since the begin
-    // of the whole test, however that seems to be incorrect.
     auto current_time = std::chrono::steady_clock::now();
-    std::chrono::duration<double> elapsed = current_time - begin;
+    std::chrono::duration<double> elapsed = current_time - measurement_start;
     measurement["test_runtime"] = elapsed.count();
   }
   // We fill the resolver_ip after the measurement. Doing that before may allow
