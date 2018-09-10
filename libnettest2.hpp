@@ -798,8 +798,8 @@ bool Runner::run_with_index32(
                                                 ? ctx.resolver_ip
                                                 : "";
   if (!rv) {
-    // TODO(bassosimone): emit "failure.measurement" error.
     // TODO(bassosimone): we should standardize the errors we emit.
+    emit_ev("failure.measurement", {{"failure", "generic_error"}});
   }
   do {
     std::string str;
