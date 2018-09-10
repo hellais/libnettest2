@@ -817,9 +817,14 @@ bool Runner::run_with_index32(
     if (!settings_.no_collector && !ctx.report_id.empty() && !str.empty()) {
       if (!submit_report(collector_base_url, ctx.report_id, str)) {
         LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
-        // TODO(bassosimone): emit failure.measurement_submission
+        // TODO(bassosimone): emit cURL error that occurred
+        emit_ev("failure.measurement_submission", {
+            {"failure", "generic_error"},
+            {"idx", i},
+            {"json_str", str},
+        });
       } else {
-        // TODO(bassosimone): emit status.measurement_submission
+        emit_ev("status.measurement_submission", {{"idx", i}});
       }
     }
     if (!str.empty()) {
