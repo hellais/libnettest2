@@ -108,7 +108,7 @@ class ErrContext {
 // Settings
 // ````````
 
-// TODO(bassosimone): add method to initialize from JSON.
+// TODO(bassosimone): add possibility to initialize from JSON.
 class Settings {
  public:
   std::map<std::string, std::string> annotations;
@@ -260,7 +260,8 @@ class Runner {
   virtual bool lookup_ip(std::string *ip, BytesInfo *info,
                          ErrContext *err) noexcept;
 
-  virtual bool lookup_resolver_ip(std::string *ip, BytesInfo *info) noexcept;
+  virtual bool lookup_resolver_ip(std::string *ip, BytesInfo *info,
+                                  ErrContext *err) noexcept;
 
   virtual bool open_report(const std::string &collector_base_url,
                            const std::string &test_start_time,
@@ -281,10 +282,11 @@ class Runner {
   // ``````````````
 
   virtual bool lookup_asn(const std::string &dbpath, const std::string &ip,
-                          std::string *asn, std::string *network_name) noexcept;
+                          std::string *asn, std::string *network_name,
+                          ErrContext *err) noexcept;
 
   virtual bool lookup_cc(const std::string &dbpath, const std::string &probe_ip,
-                         std::string *cc) noexcept;
+                         std::string *cc, ErrContext *err) noexcept;
 
   // cURL code
   // `````````
@@ -584,11 +586,14 @@ bool Runner::run() noexcept {
     // the value inside of probe_network_name even if it's non-empty.
     if (settings_.probe_asn == "") {
       if (!settings_.no_asn_lookup) {
+        ErrContext err{};
         if (!lookup_asn(settings_.geoip_asn_path, ctx.probe_ip, &ctx.probe_asn,
-                        &ctx.probe_network_name)) {
+                        &ctx.probe_network_name, &err)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_asn() failed");
-          // TODO(bassosimone): map MMDB error.
-          emit_ev("failure.asn_lookup", {{"failure", "generic_error"}});
+          emit_ev("failure.asn_lookup", {
+              {"failure", "library_error"},
+              {"library_error_context", err},
+          });
         }
       }
     } else {
@@ -601,11 +606,14 @@ bool Runner::run() noexcept {
   {
     if (settings_.probe_cc == "") {
       if (!settings_.no_cc_lookup) {
+        ErrContext err{};
         if (!lookup_cc(settings_.geoip_country_path, ctx.probe_ip,
-                       &ctx.probe_cc)) {
+                       &ctx.probe_cc, &err)) {
           LIBNETTEST2_EMIT_WARNING("run: lookup_cc() failed");
-          // TODO(bassosimone): map MMDB error.
-          emit_ev("failure.cc_lookup", {{"failure", "generic_error"}});
+          emit_ev("failure.cc_lookup", {
+              {"failure", "library_error"},
+              {"library_error_context", err},
+          });
         }
       }
     } else {
@@ -625,10 +633,13 @@ bool Runner::run() noexcept {
                                  });
   {
     if (!settings_.no_resolver_lookup) {
-      if (!lookup_resolver_ip(&ctx.resolver_ip, &info)) {
+      ErrContext err{};
+      if (!lookup_resolver_ip(&ctx.resolver_ip, &info, &err)) {
         LIBNETTEST2_EMIT_WARNING("run: lookup_resolver_ip() failed");
-        // TODO(bassosimone): map getaddrinfo error.
-        emit_ev("failure.resolver_lookup", {{"failure", "generic_error"}});
+        emit_ev("failure.resolver_lookup", {
+            {"failure", "library_error"},
+            {"library_error_context", err},
+        });
       }
     }
     LIBNETTEST2_EMIT_DEBUG("resolver_ip: " << ctx.resolver_ip);
@@ -1104,8 +1115,8 @@ bool Runner::lookup_ip(std::string *ip, Runner::BytesInfo *info,
 }
 
 bool Runner::lookup_resolver_ip(
-    std::string *ip, Runner::BytesInfo *info) noexcept {
-  if (ip == nullptr || info == nullptr) return false;
+    std::string *ip, Runner::BytesInfo *info, ErrContext *err) noexcept {
+  if (ip == nullptr || info == nullptr || err == nullptr) return false;
   ip->clear();
   // TODO(bassosimone): so, here we use getaddrinfo() because we want to know
   // what resolver has the user configured by default. However, the nettest
@@ -1129,6 +1140,10 @@ bool Runner::lookup_resolver_ip(
   auto rv = ::getaddrinfo("whoami.akamai.net", "443", &hints, &rp);
   if (rv != 0) {
     LIBNETTEST2_EMIT_WARNING("lookup_resolver_ip: " << gai_strerror(rv));
+    err->code = rv;
+    err->library_name = "libc/getaddrinfo";
+    err->library_version = "";
+    err->reason = gai_strerror(rv);
     return false;
   }
   for (auto ai = rp; ai != nullptr && ip->empty(); ai = ai->ai_next) {
@@ -1241,14 +1256,23 @@ bool Runner::close_report(const std::string &collector_base_url,
 bool Runner::lookup_asn(const std::string &dbpath,
                         const std::string &probe_ip,
                         std::string *asn,
-                        std::string *probe_network_name) noexcept {
-  if (asn == nullptr || probe_network_name == nullptr) return false;
+                        std::string *probe_network_name,
+                        ErrContext *err) noexcept {
+  if (asn == nullptr || probe_network_name == nullptr || err == nullptr) {
+    return false;
+  }
   asn->clear();
   probe_network_name->clear();
+  // TODO(bassosimone): there is a great deal of duplication of basically equal
+  // MMDB code here that can be solved by refactoring common code.
   MMDB_s mmdb{};
   auto mmdb_error = ::MMDB_open(dbpath.data(), MMDB_MODE_MMAP, &mmdb);
   if (mmdb_error != 0) {
     LIBNETTEST2_EMIT_WARNING("lookup_asn: " << MMDB_strerror(mmdb_error));
+    err->code = mmdb_error;
+    err->library_name = "libmaxminddb/MMDB_open";
+    err->library_version = MMDB_lib_version();
+    err->reason = MMDB_strerror(mmdb_error);
     return false;
   }
   auto rv = false;
@@ -1259,14 +1283,25 @@ bool Runner::lookup_asn(const std::string &dbpath,
                                      &gai_error, &mmdb_error);
     if (gai_error) {
       LIBNETTEST2_EMIT_WARNING("lookup_asn: " << gai_strerror(gai_error));
+      // Note: MMDB_lookup_string() calls getaddrinfo() and the reported
+      // gai_error error code originates from getaddrinfo().
+      err->code = gai_error;
+      err->library_name = "libc/getaddrinfo";
+      err->library_version = "";
+      err->reason = gai_strerror(gai_error);
       break;
     }
     if (mmdb_error) {
       LIBNETTEST2_EMIT_WARNING("lookup_asn: " << MMDB_strerror(mmdb_error));
+      err->code = mmdb_error;
+      err->library_name = "libmaxminddb/MMDB_lookup_string";
+      err->library_version = MMDB_lib_version();
+      err->reason = MMDB_strerror(mmdb_error);
       break;
     }
     if (!record.found_entry) {
       LIBNETTEST2_EMIT_WARNING("lookup_asn: no entry for: " << probe_ip);
+      // TODO(bassosimone): fill *err
       break;
     }
     {
@@ -1275,10 +1310,15 @@ bool Runner::lookup_asn(const std::string &dbpath,
           &record.entry, &entry, "autonomous_system_number", nullptr);
       if (mmdb_error != 0) {
         LIBNETTEST2_EMIT_WARNING("lookup_asn: " << MMDB_strerror(mmdb_error));
+        err->code = mmdb_error;
+        err->library_name = "libmaxminddb/MMDB_get_value";
+        err->library_version = MMDB_lib_version();
+        err->reason = MMDB_strerror(mmdb_error);
         break;
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UINT32) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
+        // TODO(bassosimone): fill *err
         break;
       }
       *asn = std::string{"AS"} + std::to_string(entry.uint32);
@@ -1289,10 +1329,15 @@ bool Runner::lookup_asn(const std::string &dbpath,
           &record.entry, &entry, "autonomous_system_organization", nullptr);
       if (mmdb_error != 0) {
         LIBNETTEST2_EMIT_WARNING("lookup_asn: " << MMDB_strerror(mmdb_error));
+        err->code = mmdb_error;
+        err->library_name = "libmaxminddb/MMDB_get_value";
+        err->library_version = MMDB_lib_version();
+        err->reason = MMDB_strerror(mmdb_error);
         break;
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UTF8_STRING) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
+        // TODO(bassosimone): fill *err
         break;
       }
       *probe_network_name = std::string{entry.utf8_string, entry.data_size};
@@ -1304,13 +1349,17 @@ bool Runner::lookup_asn(const std::string &dbpath,
 }
 
 bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
-                       std::string *cc) noexcept {
-  if (cc == nullptr) return false;
+                       std::string *cc, ErrContext *err) noexcept {
+  if (cc == nullptr || err == nullptr) return false;
   cc->clear();
   MMDB_s mmdb{};
   auto mmdb_error = ::MMDB_open(dbpath.data(), MMDB_MODE_MMAP, &mmdb);
   if (mmdb_error != 0) {
     LIBNETTEST2_EMIT_WARNING("lookup_cc: " << MMDB_strerror(mmdb_error));
+    err->code = mmdb_error;
+    err->library_name = "libmaxminddb/MMDB_open";
+    err->library_version = MMDB_lib_version();
+    err->reason = MMDB_strerror(mmdb_error);
     return false;
   }
   auto rv = false;
@@ -1321,14 +1370,25 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
                                      &gai_error, &mmdb_error);
     if (gai_error) {
       LIBNETTEST2_EMIT_WARNING("lookup_cc: " << gai_strerror(gai_error));
+      // Note: MMDB_lookup_string() calls getaddrinfo() and the reported
+      // gai_error error code originates from getaddrinfo().
+      err->code = gai_error;
+      err->library_name = "libc/getaddrinfo";
+      err->library_version = "";
+      err->reason = gai_strerror(gai_error);
       break;
     }
     if (mmdb_error) {
       LIBNETTEST2_EMIT_WARNING("lookup_cc: " << MMDB_strerror(mmdb_error));
+      err->code = mmdb_error;
+      err->library_name = "libmaxminddb/MMDB_lookup_string";
+      err->library_version = MMDB_lib_version();
+      err->reason = MMDB_strerror(mmdb_error);
       break;
     }
     if (!record.found_entry) {
       LIBNETTEST2_EMIT_WARNING("lookup_cc: no entry for: " << probe_ip);
+      // TODO(bassosimone): fill *err
       break;
     }
     {
@@ -1337,10 +1397,15 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
           &record.entry, &entry, "registered_country", "iso_code", nullptr);
       if (mmdb_error != 0) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: " << MMDB_strerror(mmdb_error));
+        err->code = mmdb_error;
+        err->library_name = "libmaxminddb/MMDB_get_value";
+        err->library_version = MMDB_lib_version();
+        err->reason = MMDB_strerror(mmdb_error);
         break;
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UTF8_STRING) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
+        // TODO(bassosimone): fill *err
         break;
       }
       *cc = std::string{entry.utf8_string, entry.data_size};
