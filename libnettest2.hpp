@@ -1508,9 +1508,6 @@ CurlxSlist::~CurlxSlist() noexcept {
   curl_slist_free_all(slist);  // handles nullptr gracefully
 }
 
-// TODO(bassosimone): let cURL fail if we receive an HTTP error. There should
-// be a cURL configuration option that helps to do that.
-
 bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
                              long timeout,
@@ -1744,6 +1741,11 @@ bool Runner::curlx_common(UniqueCurlx &handle,
   if (::curl_easy_setopt(handle.get(), CURLOPT_VERBOSE, 1L) != CURLE_OK) {
     LIBNETTEST2_EMIT_WARNING(
         "curlx_common: curl_easy_setopt(CURLOPT_VERBOSE) failed");
+    return false;
+  }
+  if (::curl_easy_setopt(handle.get(), CURLOPT_FAILONERROR, 1L) != CURLE_OK) {
+    LIBNETTEST2_EMIT_WARNING(
+        "curlx_common: curl_easy_setopt(CURLOPT_FAILONERROR) failed");
     return false;
   }
   auto curle = ::curl_easy_perform(handle.get());
