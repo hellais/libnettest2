@@ -34,6 +34,10 @@
 #include <curl/curl.h>
 #include <maxminddb.h>
 
+// TODO(bassosimone): add documentation and restructure code such that what
+// does not need to be documented and processed by a user lies below a specific
+// line like we currently do for libndt.
+
 // Check dependencies
 // ``````````````````
 
@@ -96,8 +100,8 @@ constexpr LogLevel log_warning = LogLevel{1};
 constexpr LogLevel log_info = LogLevel{2};
 constexpr LogLevel log_debug = LogLevel{3};
 
-// ErrContext
-// `````````
+// Errors
+// ``````
 
 class ErrContext {
  public:
@@ -106,6 +110,23 @@ class ErrContext {
   std::string library_version;
   std::string reason;
 };
+
+// Implementation note: PLEASE NEVER REMOVE LINES SUCH THAT WE CAN KEEP A
+// STABLE ERROR RELATED ABI FOREVER WITH ZERO MAINTENANCE COSTS.
+#define LIBNETTEST2_ENUM_OWN_ERRORS(XX) \
+  XX(none)                              \
+  XX(mmdb_enoent)                       \
+  XX(mmdb_enodatafortype)
+
+// Inherit from int64_t such that we can safely cast to int64_t when we
+// are using a value of this enum to initialize a ErrContext::value.
+enum class Errors : int64_t {
+#define XX(e_) e_,
+  LIBNETTEST2_ENUM_OWN_ERRORS(XX)
+#undef XX
+};
+
+const char *libnettest2_strerror(Errors n) noexcept;
 
 // Settings
 // ````````
@@ -335,6 +356,18 @@ class Runner {
 // This is a single header library. In some use cases you may want to split
 // the interface and implementation using LIBNETTEST2_NO_INLINE_IMPL.
 #ifndef LIBNETTEST2_NO_INLINE_IMPL
+
+// Errors
+// ``````
+
+const char *libnettest2_strerror(Errors n) noexcept {
+#define XX(e_) case Errors::e_: return #e_;
+  switch (n) {
+    LIBNETTEST2_ENUM_OWN_ERRORS(XX)
+  }
+#undef XX
+  return "invalid_argument";
+}
 
 // UUID4 code
 // ``````````
@@ -1316,7 +1349,11 @@ bool Runner::lookup_asn(const std::string &dbpath,
     }
     if (!record.found_entry) {
       LIBNETTEST2_EMIT_WARNING("lookup_asn: no entry for: " << probe_ip);
-      // TODO(bassosimone): fill *err
+      auto e = Errors::mmdb_enoent;
+      err->code = (int64_t)e;
+      err->library_name = default_engine_name();
+      err->library_version = version();
+      err->reason = libnettest2_strerror(e);
       break;
     }
     {
@@ -1333,7 +1370,11 @@ bool Runner::lookup_asn(const std::string &dbpath,
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UINT32) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
-        // TODO(bassosimone): fill *err
+        auto e = Errors::mmdb_enodatafortype;
+        err->code = (int64_t)e;
+        err->library_name = default_engine_name();
+        err->library_version = version();
+        err->reason = libnettest2_strerror(e);
         break;
       }
       *asn = std::string{"AS"} + std::to_string(entry.uint32);
@@ -1352,7 +1393,11 @@ bool Runner::lookup_asn(const std::string &dbpath,
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UTF8_STRING) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
-        // TODO(bassosimone): fill *err
+        auto e = Errors::mmdb_enodatafortype;
+        err->code = (int64_t)e;
+        err->library_name = default_engine_name();
+        err->library_version = version();
+        err->reason = libnettest2_strerror(e);
         break;
       }
       *probe_network_name = std::string{entry.utf8_string, entry.data_size};
@@ -1403,7 +1448,11 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
     }
     if (!record.found_entry) {
       LIBNETTEST2_EMIT_WARNING("lookup_cc: no entry for: " << probe_ip);
-      // TODO(bassosimone): fill *err
+      auto e = Errors::mmdb_enoent;
+      err->code = (int64_t)e;
+      err->library_name = default_engine_name();
+      err->library_version = version();
+      err->reason = libnettest2_strerror(e);
       break;
     }
     {
@@ -1420,7 +1469,11 @@ bool Runner::lookup_cc(const std::string &dbpath, const std::string &probe_ip,
       }
       if (!entry.has_data || entry.type != MMDB_DATA_TYPE_UTF8_STRING) {
         LIBNETTEST2_EMIT_WARNING("lookup_cc: no data or unexpected data type");
-        // TODO(bassosimone): fill *err
+        auto e = Errors::mmdb_enodatafortype;
+        err->code = (int64_t)e;
+        err->library_name = default_engine_name();
+        err->library_version = version();
+        err->reason = libnettest2_strerror(e);
         break;
       }
       *cc = std::string{entry.utf8_string, entry.data_size};
