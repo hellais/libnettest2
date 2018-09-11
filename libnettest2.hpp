@@ -73,7 +73,7 @@ using Version = unsigned int;
 constexpr Version version_major = Version{0};
 
 /// Minor API version number of measurement-kit/libnettest2.
-constexpr Version version_minor = Version{0};
+constexpr Version version_minor = Version{1};
 
 /// Patch API version number of measurement-kit/libnettest2.
 constexpr Version version_patch = Version{0};
