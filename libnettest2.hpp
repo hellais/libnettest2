@@ -37,7 +37,9 @@
 // Check dependencies
 // ``````````````````
 
-// TODO(bassosimone): make sure we can serialize a JSON
+// TODO(bassosimone): make sure we can serialize a JSON. Specifically, there
+// may be cases where the JSON input is not UTF-8 and, in such cases, the JSON
+// library that we use will throw an exception.
 
 #ifndef NLOHMANN_JSON_VERSION_MAJOR
 #error "Please include nlohmann/json before including this header"
@@ -624,7 +626,9 @@ bool Runner::run() noexcept {
   emit_ev("status.progress", {{"percentage", 0.2},
                               {"message", "geoip lookup"}});
   // TODO(bassosimone): make sure that passing empty strings here is
-  // preferrable than passing conventional values like 127.0.0.1
+  // preferrable than passing conventional values like 127.0.0.1. This
+  // has been prompted by a discussion with @lorenzoPrimi and I guess
+  // it needs to be also discussed with @hellais.
   emit_ev("status.geoip_lookup", {
                                      {"probe_cc", ctx.probe_cc},
                                      {"probe_asn", ctx.probe_asn},
@@ -788,7 +792,8 @@ bool Runner::run() noexcept {
                                 {"message", "report close"}});
   } while (0);
   // TODO(bassosimone): decide whether it makes sense to have an overall
-  // precise error code in this context (it seems not so easy).
+  // precise error code in this context (it seems not so easy). For now just
+  // always report success, which is what also legacy MK code does.
   emit_ev("status.end", {{"failure", ""},
                          {"downloaded_kb", info.data_in.load()},
                          {"uploaded_kb", info.data_out.load()}});
@@ -895,7 +900,8 @@ bool Runner::run_with_index32(
                                                 ? ctx.resolver_ip
                                                 : "";
   if (!rv) {
-    // TODO(bassosimone): we should standardize the errors we emit.
+    // TODO(bassosimone): we should standardize the errors we emit. We can
+    // probably emit something along the lines of library_error.
     emit_ev("failure.measurement", {
         {"failure", "generic_error"},
         {"idx", i},
@@ -908,7 +914,8 @@ bool Runner::run_with_index32(
     } catch (const std::exception &e) {
       LIBNETTEST2_EMIT_WARNING("run: cannot serialize JSON: " << e.what());
       // TODO(bassosimone): This is MK passing us an invalid JSON. Should we
-      // submit something nonetheless as a form of telemetry?
+      // submit something nonetheless as a form of telemetry? This is something
+      // I should probably discuss with @hellais and/or @darkk.
       break;
     }
     // When the report ID is empty, do not bother with closing the report as
@@ -996,7 +1003,9 @@ bool Runner::query_bouncer(std::string nettest_name,
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: JSON request: " << requestbody);
   std::string responsebody;
   // TODO(bassosimone): we should probably discuss with @hellais whether we
-  // like that currently we do not have a cloudfronted bouncer fallback
+  // like that currently we do not have a cloudfronted bouncer fallback. This
+  // is to be done later since I want to reach feature parity with MK legacy
+  // codebase first, and focus on perks later.
   std::string url = without_final_slash(settings_.bouncer_base_url);
   url += "/bouncer/net-tests";
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: URL: " << url);
@@ -1007,7 +1016,8 @@ bool Runner::query_bouncer(std::string nettest_name,
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: JSON reply: " << responsebody);
   try {
     // TODO(bassosimone): make processing more flexible and robust? Here we
-    // are making strong assumptions on the returned object type.
+    // are making strong assumptions on the returned object type. This is
+    // also something that we can defer to the future.
     auto doc = nlohmann::json::parse(responsebody);
     for (auto &entry : doc.at("net-tests")) {
       {
@@ -1092,7 +1102,8 @@ static bool xml_extract(std::string input, std::string open_tag,
   input = input.substr(0, pos);
   for (auto ch : input) {
     if (isspace(ch)) continue;
-    // TODO(bassosimone): perhaps reject input that is not printable?
+    // TODO(bassosimone): perhaps reject input that is not printable? This is
+    // something that I may want to discuss with @hellais or @darkk.
     *result += tolower(ch);
   }
   return true;
@@ -1104,7 +1115,8 @@ bool Runner::lookup_ip(std::string *ip, Runner::BytesInfo *info,
   ip->clear();
   std::string responsebody;
   // TODO(bassosimone): as discussed several time with @hellais, here we
-  // should use other services for getting the probe's IP address.
+  // should use other services for getting the probe's IP address. Let us
+  // reach feature parity first and then we can work on this.
   std::string url = "https://geoip.ubuntu.com/lookup";
   LIBNETTEST2_EMIT_DEBUG("lookup_ip: URL: " << url);
   if (!curlx_get(std::move(url), curl_timeout, &responsebody, info, err)) {
@@ -1440,7 +1452,8 @@ CurlxSlist::~CurlxSlist() noexcept {
   curl_slist_free_all(slist);  // handles nullptr gracefully
 }
 
-// TODO(bassosimone): let cURL fail if we receive an HTTP error.
+// TODO(bassosimone): let cURL fail if we receive an HTTP error. There should
+// be a cURL configuration option that helps to do that.
 
 bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
@@ -1461,7 +1474,8 @@ bool Runner::curlx_post_json(std::string url,
   CurlxSlist headers;
   // TODO(bassosimone): here we should implement support for Tor and for
   // cloudfronted. Code doing that was implemented by @hellais into the
-  // measurement-kit/web-api-client repository.
+  // measurement-kit/web-api-client repository. Deferred after we have a
+  // status a feature parity with MK.
   if (!requestbody.empty()) {
     {
       if ((headers.slist = curl_slist_append(
