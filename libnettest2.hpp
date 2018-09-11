@@ -887,6 +887,9 @@ bool Runner::run_with_index32(
   measurement["test_version"] = nettest_.version();
   nlohmann::json test_keys;
   auto measurement_start = std::chrono::steady_clock::now();
+  // TODO(bassosimone): make sure we correctly pass downstream the probe_ip
+  // such that the consumer tests could use it to scrub the IP. Currently the
+  // nettest with this requirements is WebConnectivity.
   auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
   {
     auto current_time = std::chrono::steady_clock::now();
