@@ -45,9 +45,9 @@
 // may be cases where the JSON input is not UTF-8 and, in such cases, the JSON
 // library that we use will throw an exception.
 
-#ifndef NLOHMANN_JSON_VERSION_MAJOR
+#ifndef NLOHMANN_JSON_HPP
 #error "Please include nlohmann/json before including this header"
-#endif  // !NLOHMANN_JSON_VERSION_MAJOR
+#endif  // !NLOHMANN_JSON_HPP
 
 #ifndef DATE_H
 #error "Please include HowardHinnant/date before including this header"
