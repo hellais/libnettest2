@@ -70,10 +70,10 @@ using Version = unsigned int;
 constexpr Version version_major = Version{0};
 
 /// Minor API version number of measurement-kit/libnettest2.
-constexpr Version version_minor = Version{1};
+constexpr Version version_minor = Version{2};
 
 /// Patch API version number of measurement-kit/libnettest2.
-constexpr Version version_patch = Version{2};
+constexpr Version version_patch = Version{0};
 
 /// Returns a string reresentation of the version
 inline std::string version() noexcept {
