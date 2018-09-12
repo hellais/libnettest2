@@ -991,8 +991,12 @@ static std::string without_final_slash(std::string src) noexcept {
 
 static std::string nlohmann_json_version() noexcept {
   std::stringstream ss;
+#ifdef NLOHMANN_JSON_VERSION_MAJOR
   ss << NLOHMANN_JSON_VERSION_MAJOR << "." << NLOHMANN_JSON_VERSION_MINOR
      << "." << NLOHMANN_JSON_VERSION_PATCH;
+#else
+  ss << "unknown";
+#endif
   return ss.str();
 }
 
