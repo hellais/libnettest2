@@ -38,6 +38,9 @@
 // does not need to be documented and processed by a user lies below a specific
 // line like we currently do for libndt.
 
+// TODO(bassosimone): add support for telling cURL which CA to use. We will
+// need this when we use this code with the mobile apps.
+
 // Check dependencies
 // ``````````````````
 
