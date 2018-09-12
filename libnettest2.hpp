@@ -825,8 +825,8 @@ bool Runner::run() noexcept {
   // precise error code in this context (it seems not so easy). For now just
   // always report success, which is what also legacy MK code does.
   emit_ev("status.end", {{"failure", ""},
-                         {"downloaded_kb", info.data_in.load()},
-                         {"uploaded_kb", info.data_out.load()}});
+                         {"downloaded_kb", info.data_in.load() / 1024.0},
+                         {"uploaded_kb", info.data_out.load() / 1024.0}});
   return true;
 }
 
