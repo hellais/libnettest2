@@ -1077,14 +1077,22 @@ bool Runner::query_bouncer(std::string nettest_name,
         }
         collectors->push_back(std::move(info));
       }
+#ifdef NLOHMANN_JSON_VERSION_MAJOR  // >= v3.0.0
       for (auto &entry : entry.at("test-helpers").items()) {
+#else
+      for (auto &entry : nlohmann::json::iterator_wrapper(entry.at("test-helpers"))) {
+#endif
         std::string key = entry.key();
         EndpointInfo info;
         info.type = endpoint_type_onion;
         info.address = entry.value();
         (*test_helpers)[key].push_back(std::move(info));
       }
+#ifdef NLOHMANN_JSON_VERSION_MAJOR  // >= v3.0.0
       for (auto &entry : entry.at("test-helpers-alternate").items()) {
+#else
+      for (auto &entry : nlohmann::json::iterator_wrapper(entry.at("test-helpers-alternate"))) {
+#endif
         std::string key = entry.key();
         for (auto &entry : entry.value()) {
           EndpointInfo info;
