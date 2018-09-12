@@ -76,7 +76,7 @@ constexpr Version version_minor = Version{1};
 constexpr Version version_patch = Version{2};
 
 /// Returns a string reresentation of the version
-std::string version() noexcept {
+inline std::string version() noexcept {
   std::stringstream ss;
   ss << version_major << "." << version_minor << "." << version_patch;
   return ss.str();
