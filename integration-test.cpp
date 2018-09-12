@@ -61,6 +61,7 @@ int main() {
   settings.geoip_asn_path = "GeoLite2-ASN_20180731/GeoLite2-ASN.mmdb";
   settings.geoip_country_path = "GeoLite2-Country_20180703/GeoLite2-Country.mmdb";
   settings.inputs = {"www.google.com", "www.kernel.org"};
+  //settings.parallelism = 1;  // for debugging
   MockWebConnectivity nettest;
   libnettest2::Runner runner{settings, nettest};
   return runner.run() ? EXIT_SUCCESS : EXIT_FAILURE;

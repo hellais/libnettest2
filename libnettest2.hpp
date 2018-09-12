@@ -292,7 +292,7 @@ class Runner {
                            std::string *report_id,
                            BytesInfo *info, ErrContext *err) noexcept;
 
-  virtual bool submit_report(const std::string &collector_base_url,
+  virtual bool update_report(const std::string &collector_base_url,
                              const std::string &report_id,
                              const std::string &json_str,
                              BytesInfo *info, ErrContext *err) const noexcept;
@@ -959,8 +959,8 @@ bool Runner::run_with_index32(
     // indicates a bug where we could not serialize a JSON.
     if (!settings_.no_collector && !ctx.report_id.empty() && !str.empty()) {
       ErrContext err{};
-      if (!submit_report(collector_base_url, ctx.report_id, str, info, &err)) {
-        LIBNETTEST2_EMIT_WARNING("run: submit_report() failed");
+      if (!update_report(collector_base_url, ctx.report_id, str, info, &err)) {
+        LIBNETTEST2_EMIT_WARNING("run: update_report() failed");
         emit_ev("failure.measurement_submission", {
             {"failure", "library_error"},
             {"library_error_context", err},
@@ -1273,23 +1273,37 @@ bool Runner::open_report(const std::string &collector_base_url,
   return true;
 }
 
-bool Runner::submit_report(const std::string &collector_base_url,
+bool Runner::update_report(const std::string &collector_base_url,
                            const std::string &report_id,
-                           const std::string &requestbody,
+                           const std::string &json_str,
                            Runner::BytesInfo *info,
                            ErrContext *err) const noexcept {
   if (info == nullptr || err == nullptr) return false;
-  LIBNETTEST2_EMIT_DEBUG("submit_report: JSON request: " << requestbody);
   std::string responsebody;
   std::string url = without_final_slash(collector_base_url);
   url += "/report/";
   url += report_id;
-  LIBNETTEST2_EMIT_DEBUG("submit_report: URL: " << url);
+  nlohmann::json message;
+  message["content"] = json_str;
+  message["format"] = "json";
+  std::string requestbody;
+  try {
+    requestbody = message.dump();
+  } catch (const std::exception &exc) {
+    LIBNETTEST2_EMIT_WARNING("update_report: cannot serialize request");
+    err->reason = 1;
+    err->library_name = "nlohmann/json";
+    err->library_version = nlohmann_json_version();
+    err->reason = exc.what();
+    return false;
+  }
+  LIBNETTEST2_EMIT_DEBUG("update_report: JSON request: " << requestbody);
+  LIBNETTEST2_EMIT_DEBUG("update_report: URL: " << url);
   if (!curlx_post_json(std::move(url), std::move(requestbody), curl_timeout,
                        &responsebody, info, err)) {
     return false;
   }
-  LIBNETTEST2_EMIT_DEBUG("submit_report: JSON reply: " << responsebody);
+  LIBNETTEST2_EMIT_DEBUG("update_report: JSON reply: " << responsebody);
   return true;
 }
 
