@@ -48,9 +48,6 @@
 #ifndef NLOHMANN_JSON_VERSION_MAJOR
 #error "Please include nlohmann/json before including this header"
 #endif  // !NLOHMANN_JSON_VERSION_MAJOR
-#if NLOHMANN_JSON_VERSION_MAJOR < 3
-#error "Libnettest2 requires nlohmann/json >= 3"
-#endif
 
 #ifndef DATE_H
 #error "Please include HowardHinnant/date before including this header"
