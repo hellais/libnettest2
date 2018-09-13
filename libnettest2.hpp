@@ -484,7 +484,7 @@ uuid uuid4() {
       std::stringstream ss;                           \
       ss << statements;                               \
       nlohmann::json value;                           \
-      value["level"] = #level;                        \
+      value["log_level"] = #level;                    \
       value["message"] = ss.str();                    \
       self->emit_ev("log", std::move(value));         \
     }                                                 \
