@@ -847,6 +847,10 @@ LogLevel Runner::get_log_level() const noexcept { return settings_.log_level; }
 // ``````````````````````````````````````
 
 void Runner::on_event(const nlohmann::json &event) const noexcept {
+  // When running with -fsanitize=thread enable on macOS, a data race in
+  // accessing std::clog is reported. Attempt to avoid that.
+  static std::mutex no_data_race;
+  std::unique_lock<std::mutex> _{no_data_race};
   std::clog << event.dump() << std::endl;
 }
 
