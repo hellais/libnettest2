@@ -741,11 +741,12 @@ bool Runner::run() noexcept {
     // Implementation note: here we create a bunch of constant variables for
     // the lambda to access shared stuff in a thread safe way
     constexpr uint8_t default_parallelism = 3;
-    std::atomic<uint8_t> active{((nettest_.needs_input() == false)  //
+    uint8_t parallelism = ((nettest_.needs_input() == false)  //
                                      ? (uint8_t)1
                                      : ((settings_.parallelism > 0)  //
                                             ? settings_.parallelism
-                                            : default_parallelism))};
+                                            : default_parallelism));
+    std::atomic<uint8_t> active{0};
     auto begin = std::chrono::steady_clock::now();
     const std::chrono::time_point<std::chrono::steady_clock> &cbegin = begin;
     const std::string &ccollector_base_url = collector_base_url;
@@ -756,7 +757,8 @@ bool Runner::run() noexcept {
     std::mutex mutex;
     const std::string &ctest_start_time = test_start_time;
     auto pinfo = &info;
-    for (uint8_t j = 0; j < active; ++j) {
+    for (uint8_t j = 0; j < parallelism; ++j) {
+      active += 1;
       // Implementation note: make sure this lambda has only access to either
       // constant stuff or to stuff that it's thread safe.
       auto main = [
