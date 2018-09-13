@@ -482,7 +482,7 @@ uuid uuid4() {
   do {                                                                 \
     if (self->get_log_level() >= log_##level) {                        \
       std::stringstream ss;                                            \
-      ss << statements;                                                \
+      ss << "libnettest2: " << statements;                             \
       nlohmann::json value;                                            \
       value["log_level"] = #uppercase_level;                           \
       value["message"] = ss.str();                                     \
@@ -1636,30 +1636,35 @@ static int libnettest2_curl_debugfn(CURL *handle,
   auto owner = wrapper->owner;
   // Emit debug messages if the log level allows that
   if (owner->get_log_level() >= log_debug) {
+    auto log_many_lines = [&](std::string prefix, std::string str) {
+      std::stringstream ss;
+      ss << str;
+      std::string line;
+      while (std::getline(ss, line, '\n')) {
+        LIBNETTEST2_EMIT_DEBUG_EX(owner, "curl: " << prefix << line);
+      }
+    };
     switch (type) {
       case CURLINFO_TEXT:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner,
-              "curl: " << std::string((char *)data, size));
+        log_many_lines("", std::string{(char *)data, size});
         break;
       case CURLINFO_HEADER_IN:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner,
-              "< " << std::string((char *)data, size));
+        log_many_lines("< ", std::string{(char *)data, size});
         break;
       case CURLINFO_DATA_IN:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner, "<data(" << size << ")");
+        LIBNETTEST2_EMIT_DEBUG_EX(owner, "curl: < data{" << size << "}");
         break;
       case CURLINFO_SSL_DATA_IN:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner, "<ssl_data(" << size << ")");
+        LIBNETTEST2_EMIT_DEBUG_EX(owner, "curl: < ssl_data{" << size << "}");
         break;
       case CURLINFO_HEADER_OUT:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner,
-              "> " << std::string((char *)data, size));
+        log_many_lines("> ", std::string{(char *)data, size});
         break;
       case CURLINFO_DATA_OUT:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner, ">data(" << size << ")");
+        LIBNETTEST2_EMIT_DEBUG_EX(owner, "curl: > data{" << size << "}");
         break;
       case CURLINFO_SSL_DATA_OUT:
-        LIBNETTEST2_EMIT_DEBUG_EX(owner, ">ssl_data(" << size << ")");
+        LIBNETTEST2_EMIT_DEBUG_EX(owner, "curl: > ssl_data{" << size << "}");
         break;
       case CURLINFO_END:
         /* NOTHING */
