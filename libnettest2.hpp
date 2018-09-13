@@ -478,35 +478,35 @@ uuid uuid4() {
 #  define LIBNETTEST2_PLATFORM "unknown"
 #endif
 
-#define LIBNETTEST2_EMIT_LOG(self, level, statements) \
-  do {                                                \
-    if (self->get_log_level() >= log_##level) {       \
-      std::stringstream ss;                           \
-      ss << statements;                               \
-      nlohmann::json value;                           \
-      value["log_level"] = #level;                    \
-      value["message"] = ss.str();                    \
-      self->emit_ev("log", std::move(value));         \
-    }                                                 \
+#define LIBNETTEST2_EMIT_LOG(self, level, uppercase_level, statements) \
+  do {                                                                 \
+    if (self->get_log_level() >= log_##level) {                        \
+      std::stringstream ss;                                            \
+      ss << statements;                                                \
+      nlohmann::json value;                                            \
+      value["log_level"] = #uppercase_level;                           \
+      value["message"] = ss.str();                                     \
+      self->emit_ev("log", std::move(value));                          \
+    }                                                                  \
   } while (0)
 
 #define LIBNETTEST2_EMIT_WARNING_EX(self, statements) \
-  LIBNETTEST2_EMIT_LOG(self, warning, statements)
+  LIBNETTEST2_EMIT_LOG(self, warning, WARNING, statements)
 
 #define LIBNETTEST2_EMIT_INFO_EX(self, statements) \
-  LIBNETTEST2_EMIT_LOG(self, info, statements)
+  LIBNETTEST2_EMIT_LOG(self, info, INFO, statements)
 
 #define LIBNETTEST2_EMIT_DEBUG_EX(self, statements) \
-  LIBNETTEST2_EMIT_LOG(self, debug, statements)
+  LIBNETTEST2_EMIT_LOG(self, debug, DEBUG, statements)
 
 #define LIBNETTEST2_EMIT_WARNING(statements) \
-  LIBNETTEST2_EMIT_LOG(this, warning, statements)
+  LIBNETTEST2_EMIT_WARNING_EX(this, statements)
 
 #define LIBNETTEST2_EMIT_INFO(statements) \
-  LIBNETTEST2_EMIT_LOG(this, info, statements)
+  LIBNETTEST2_EMIT_INFO_EX(this, statements)
 
 #define LIBNETTEST2_EMIT_DEBUG(statements) \
-  LIBNETTEST2_EMIT_LOG(this, debug, statements)
+  LIBNETTEST2_EMIT_DEBUG_EX(this, statements)
 
 // Nettest
 // ```````
