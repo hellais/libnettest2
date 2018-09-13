@@ -741,10 +741,6 @@ bool Runner::run() noexcept {
     // Implementation note: here we create a bunch of constant variables for
     // the lambda to access shared stuff in a thread safe way
     constexpr uint8_t default_parallelism = 3;
-    // TODO(bassosimone): fully understand why, after 739d567, there are
-    // no deadlocks waiting for threads with some WebConnectivity runs while
-    // before there were frequent deadlocks. I am probably missing a very
-    // obvious aspect here. As I said in 739d567, I'll investigate this.
     uint8_t parallelism = ((nettest_.needs_input() == false)  //
                                      ? (uint8_t)1
                                      : ((settings_.parallelism > 0)  //
