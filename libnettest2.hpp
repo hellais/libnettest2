@@ -76,7 +76,7 @@ constexpr Version version_major = Version{0};
 constexpr Version version_minor = Version{3};
 
 /// Patch API version number of measurement-kit/libnettest2.
-constexpr Version version_patch = Version{0};
+constexpr Version version_patch = Version{1};
 
 /// Returns a string reresentation of the version
 inline std::string version() noexcept {
