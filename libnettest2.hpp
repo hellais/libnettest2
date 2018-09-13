@@ -758,7 +758,6 @@ bool Runner::run() noexcept {
     const std::string &ctest_start_time = test_start_time;
     auto pinfo = &info;
     for (uint8_t j = 0; j < parallelism; ++j) {
-      active += 1;
       // Implementation note: make sure this lambda has only access to either
       // constant stuff or to stuff that it's thread safe.
       auto main = [
@@ -773,6 +772,7 @@ bool Runner::run() noexcept {
         &mutex,                // thread safe
         pinfo                  // ptr to struct w/ only atomic fields
       ]() noexcept {
+        active += 1;
         // TODO(bassosimone): more work is required to actually interrupt
         // "long" tests like NDT that take several seconds to complete. This
         // is actually broken also in Measurement Kit, where we cannot stop
