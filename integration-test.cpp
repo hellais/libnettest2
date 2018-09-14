@@ -26,7 +26,8 @@ class MockWebConnectivity : public libnettest2::Nettest {
   bool run(const libnettest2::Settings &settings,
            const libnettest2::NettestContext &context,
            std::string input,
-           nlohmann::json *result) noexcept override;
+           nlohmann::json *result,
+           libnettest2::BytesInfo *info) noexcept override;
 
   ~MockWebConnectivity() noexcept override;
 };
@@ -46,8 +47,10 @@ std::vector<std::string> MockWebConnectivity::test_helpers() const noexcept {
 bool MockWebConnectivity::run(const libnettest2::Settings &settings,
                               const libnettest2::NettestContext &context,
                               std::string input,
-                              nlohmann::json *result) noexcept {
-  return libnettest2::Nettest::run(settings, context, std::move(input), result);
+                              nlohmann::json *result,
+                              libnettest2::BytesInfo *info) noexcept {
+  return libnettest2::Nettest::run(
+      settings, context, std::move(input), result, info);
 }
 
 MockWebConnectivity::~MockWebConnectivity() noexcept {}
