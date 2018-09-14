@@ -200,8 +200,12 @@ class NettestContext {
 
 class BytesInfo {
  public:
-  std::atomic<double> kb_down{0.0};
-  std::atomic<double> kb_up{0.0};
+  // Implementation note: we use unsigned arithmetic here and accept the
+  // fact that, if we transfer a very huge amount of data (unlikely for
+  // all our tests), we will wrap around. Signed types are guaranteed to
+  // wrap around. See <https://stackoverflow.com/a/10011488/4354461>.
+  std::atomic<uint64_t> bytes_down{0};
+  std::atomic<uint64_t> bytes_up{0};
 };
 
 class Nettest {
@@ -831,8 +835,8 @@ bool Runner::run() noexcept {
   // precise error code in this context (it seems not so easy). For now just
   // always report success, which is what also legacy MK code does.
   emit_ev("status.end", {{"failure", ""},
-                         {"downloaded_kb", info.kb_down.load()},
-                         {"uploaded_kb", info.kb_up.load()}});
+                         {"downloaded_kb", info.bytes_down.load() / 1024.0},
+                         {"uploaded_kb", info.bytes_up.load() / 1024.0}});
   return true;
 }
 
@@ -1201,8 +1205,8 @@ bool Runner::lookup_resolver_ip(
   {
     // Upper bound estimate: assume that the AF_INET query takes a maximum
     // size IP datagram (i.e. 512 bytes according to <arpa/nameser.h>)
-    info->kb_up += 512 / 1024.0;
-    info->kb_down += 512 / 1024.0;
+    info->bytes_up += 512;
+    info->bytes_down += 512;
   }
   auto rv = ::getaddrinfo("whoami.akamai.net", "443", &hints, &rp);
   if (rv != 0) {
@@ -1705,12 +1709,12 @@ static int libnettest2_curl_debugfn(CURL *handle,
     case CURLINFO_HEADER_IN:
     case CURLINFO_DATA_IN:
     case CURLINFO_SSL_DATA_IN:
-      info->kb_down += size / 1024.0;
+      info->bytes_down += size;
       break;
     case CURLINFO_HEADER_OUT:
     case CURLINFO_DATA_OUT:
     case CURLINFO_SSL_DATA_OUT:
-      info->kb_up += size / 1024.0;
+      info->bytes_up += size;
       break;
     case CURLINFO_TEXT:
     case CURLINFO_END:
