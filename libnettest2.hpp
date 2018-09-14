@@ -198,6 +198,12 @@ class NettestContext {
 // Nettest
 // ```````
 
+class BytesInfo {
+ public:
+  std::atomic<double> kb_down{0.0};
+  std::atomic<double> kb_up{0.0};
+};
+
 class Nettest {
  public:
   virtual std::string name() const noexcept;
@@ -211,7 +217,8 @@ class Nettest {
   virtual bool run(const Settings &settings,
                    const NettestContext &context,
                    std::string input,
-                   nlohmann::json *test_keys) noexcept;
+                   nlohmann::json *test_keys,
+                   BytesInfo *info) noexcept;
 
   virtual ~Nettest() noexcept;
 };
@@ -250,12 +257,6 @@ class Runner {
 
  public:
   virtual void emit_ev(std::string key, nlohmann::json value) const noexcept;
-
-  class BytesInfo {
-   public:
-    std::atomic<uint64_t> data_in{0};
-    std::atomic<uint64_t> data_out{0};
-  };
 
   class BytesInfoWrapper {
    public:
@@ -520,7 +521,7 @@ std::string Nettest::version() const noexcept { return "0.0.1"; }
 bool Nettest::needs_input() const noexcept { return false; }
 
 bool Nettest::run(const Settings &, const NettestContext &,
-                  std::string, nlohmann::json *) noexcept {
+                  std::string, nlohmann::json *, BytesInfo *) noexcept {
   // Do nothing for two seconds, for testing
   std::this_thread::sleep_for(std::chrono::seconds(2));
   return true;
@@ -830,8 +831,8 @@ bool Runner::run() noexcept {
   // precise error code in this context (it seems not so easy). For now just
   // always report success, which is what also legacy MK code does.
   emit_ev("status.end", {{"failure", ""},
-                         {"downloaded_kb", info.data_in.load() / 1024.0},
-                         {"uploaded_kb", info.data_out.load() / 1024.0}});
+                         {"downloaded_kb", info.kb_down.load()},
+                         {"uploaded_kb", info.kb_up.load()}});
   return true;
 }
 
@@ -863,7 +864,7 @@ bool Runner::run_with_index32(
     const std::string &test_start_time,
     const std::vector<std::string> &inputs, const NettestContext &ctx,
     const std::string &collector_base_url, uint32_t i,
-    Runner::BytesInfo *info) const noexcept {
+    BytesInfo *info) const noexcept {
   if (info == nullptr) return false;
   {
     auto current_time = std::chrono::steady_clock::now();
@@ -929,7 +930,7 @@ bool Runner::run_with_index32(
   // TODO(bassosimone): make sure we correctly pass downstream the probe_ip
   // such that the consumer tests could use it to scrub the IP. Currently the
   // nettest with this requirements is WebConnectivity.
-  auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys);
+  auto rv = nettest_.run(settings_, ctx, inputs[i], &test_keys, info);
   {
     auto current_time = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = current_time - measurement_start;
@@ -1015,7 +1016,7 @@ bool Runner::query_bouncer(std::string nettest_name,
                            std::vector<EndpointInfo> *collectors,
                            std::map<std::string,
                              std::vector<EndpointInfo>> *test_helpers,
-                           Runner::BytesInfo *info, ErrContext *err) noexcept {
+                           BytesInfo *info, ErrContext *err) noexcept {
   LIBNETTEST2_EMIT_DEBUG("query_bouncer: nettest_name: " << nettest_name);
   for (auto &helper : nettest_helper_names) {
     LIBNETTEST2_EMIT_DEBUG("query_bouncer: helper: - " << helper);
@@ -1163,7 +1164,7 @@ static bool xml_extract(std::string input, std::string open_tag,
   return true;
 }
 
-bool Runner::lookup_ip(std::string *ip, Runner::BytesInfo *info,
+bool Runner::lookup_ip(std::string *ip, BytesInfo *info,
                        ErrContext *err) noexcept {
   if (ip == nullptr || info == nullptr || err == nullptr) return false;
   ip->clear();
@@ -1181,7 +1182,7 @@ bool Runner::lookup_ip(std::string *ip, Runner::BytesInfo *info,
 }
 
 bool Runner::lookup_resolver_ip(
-    std::string *ip, Runner::BytesInfo *info, ErrContext *err) noexcept {
+    std::string *ip, BytesInfo *info, ErrContext *err) noexcept {
   if (ip == nullptr || info == nullptr || err == nullptr) return false;
   ip->clear();
   // TODO(bassosimone): so, here we use getaddrinfo() because we want to know
@@ -1200,8 +1201,8 @@ bool Runner::lookup_resolver_ip(
   {
     // Upper bound estimate: assume that the AF_INET query takes a maximum
     // size IP datagram (i.e. 512 bytes according to <arpa/nameser.h>)
-    info->data_out += 512;
-    info->data_in += 512;
+    info->kb_up += 512 / 1024.0;
+    info->kb_down += 512 / 1024.0;
   }
   auto rv = ::getaddrinfo("whoami.akamai.net", "443", &hints, &rp);
   if (rv != 0) {
@@ -1229,7 +1230,7 @@ bool Runner::open_report(const std::string &collector_base_url,
                          const std::string &test_start_time,
                          const NettestContext &context,
                          std::string *report_id,
-                         Runner::BytesInfo *info,
+                         BytesInfo *info,
                          ErrContext *err) noexcept {
   if (report_id == nullptr || info == nullptr || err == nullptr) return false;
   report_id->clear();
@@ -1282,7 +1283,7 @@ bool Runner::open_report(const std::string &collector_base_url,
 bool Runner::update_report(const std::string &collector_base_url,
                            const std::string &report_id,
                            const std::string &json_str,
-                           Runner::BytesInfo *info,
+                           BytesInfo *info,
                            ErrContext *err) const noexcept {
   if (info == nullptr || err == nullptr) return false;
   std::string responsebody;
@@ -1315,7 +1316,7 @@ bool Runner::update_report(const std::string &collector_base_url,
 
 bool Runner::close_report(const std::string &collector_base_url,
                           const std::string &report_id,
-                          Runner::BytesInfo *info,
+                          BytesInfo *info,
                           ErrContext *err) noexcept {
   if (info == nullptr || err == nullptr) return false;
   std::string responsebody;
@@ -1544,7 +1545,7 @@ bool Runner::curlx_post_json(std::string url,
                              std::string requestbody,
                              long timeout,
                              std::string *responsebody,
-                             Runner::BytesInfo *info,
+                             BytesInfo *info,
                              ErrContext *err) const noexcept {
   if (responsebody == nullptr || info == nullptr || err == nullptr) {
     return false;
@@ -1593,7 +1594,7 @@ bool Runner::curlx_post_json(std::string url,
 bool Runner::curlx_get(std::string url,
                        long timeout,
                        std::string *responsebody,
-                       Runner::BytesInfo *info,
+                       BytesInfo *info,
                        ErrContext *err) noexcept {
   if (responsebody == nullptr || info == nullptr || err == nullptr) {
     return false;
@@ -1677,8 +1678,6 @@ static int libnettest2_curl_debugfn(CURL *handle,
         break;
     }
   }
-  // Update counters and silently avoid unlikely overflow.
-  //
   // Note regarding counting TLS data
   // ````````````````````````````````
   //
@@ -1706,16 +1705,12 @@ static int libnettest2_curl_debugfn(CURL *handle,
     case CURLINFO_HEADER_IN:
     case CURLINFO_DATA_IN:
     case CURLINFO_SSL_DATA_IN:
-      if (info->data_in <= UINT64_MAX - size) {
-        info->data_in += size;
-      }
+      info->kb_down += size / 1024.0;
       break;
     case CURLINFO_HEADER_OUT:
     case CURLINFO_DATA_OUT:
     case CURLINFO_SSL_DATA_OUT:
-      if (info->data_out <= UINT64_MAX - size) {
-        info->data_out += size;
-      }
+      info->kb_up += size / 1024.0;
       break;
     case CURLINFO_TEXT:
     case CURLINFO_END:
@@ -1733,7 +1728,7 @@ bool Runner::curlx_common(UniqueCurlx &handle,
                           std::string url,
                           long timeout,
                           std::string *responsebody,
-                          Runner::BytesInfo *info,
+                          BytesInfo *info,
                           ErrContext *err) const noexcept {
   if (responsebody == nullptr || info == nullptr || err == nullptr) {
     return false;
